@@ -1,4 +1,4 @@
-# Chỉ final clone answer gọi trong specialize; không đợi main provisioning kết thúc.
+# Called only by clone specialize; do not wait for main provisioning to finish.
 #Requires -RunAsAdministrator
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:ProgramData 'Tiny11Template'
@@ -24,15 +24,15 @@ try {
         (Get-FileHash $wrapper).Hash -ne 'E141FE1CCF2ACF9DF052894D25D8DF4A219F51C0A21D9C8156C34C6CBCA11425') {
         throw 'Clone service identity mismatch'
     }
-    # Không để main plugins chạy song song với network-unattend.
+    # Prevent main plugins from racing network-unattend.
     Stop-Service cloudbase-init -ErrorAction Stop
     Set-Service cloudbase-init -StartupType Disabled
     $plugin = Join-Path $env:ProgramFiles 'Cloudbase Solutions\Cloudbase-Init\Python\Lib\site-packages\tiny11_cloudbase.py'
     if ((Get-FileHash $plugin).Hash -ne (Get-FileHash (Join-Path $root 'tiny11_cloudbase.py')).Hash) { throw 'Clone reconciliation plugin integrity failed' }
-    # ConfigDrive là local; một owner trong main xử lý network/hostname/password sau Setup.
+    # Local ConfigDrive has one main owner for network, hostname, and password after Setup.
     $stage = 'Activate main service'
     Set-Service cloudbase-init -StartupType Automatic
-    # StartServiceW trả sau acknowledgement, không đợi child Cloudbase plugins.
+    # StartServiceW returns after acknowledgement, not after child plugins finish.
     $controller = New-Object System.ServiceProcess.ServiceController 'cloudbase-init'
     try {
         $controller.Start()

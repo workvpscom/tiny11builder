@@ -8,7 +8,7 @@ namespace Tiny11Builder.Core.Tests;
 [SupportedOSPlatform("windows")]
 public sealed class TemplateRebootTests
 {
-    // GP-01: hợp đồng auditUser không phụ thuộc ImageState của desktop reference.
+    // GP-01: The auditUser contract does not depend on desktop reference ImageState.
     [Theory]
     [InlineData("IMAGE_STATE_UNDEPLOYABLE", true, true, "S-1-5-21-1-2-3-500", "AuditUser", true)]
     [InlineData("IMAGE_STATE_COMPLETE", true, true, "S-1-5-21-1-2-3-500", "AuditUser", true)]
@@ -31,7 +31,7 @@ public sealed class TemplateRebootTests
         Assert.Equal(0, result.ExitCode);
     }
 
-    // GP-09: đúng SID chưa đủ nếu root/elevation không phù hợp.
+    // GP-09: The correct SID is insufficient when root or elevation is invalid.
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -47,7 +47,7 @@ public sealed class TemplateRebootTests
         Assert.Equal(0, result.ExitCode);
     }
 
-    // GP-02/GP-05: logic chung entrypoints không bỏ reboot sau interruption.
+    // GP-02/GP-05: Shared entrypoint logic preserves reboot requirements after interruption.
     [Theory]
     [InlineData("boot-a", "boot-a", true)]
     [InlineData("boot-a", "boot-b", false)]

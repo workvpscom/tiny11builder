@@ -7,7 +7,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateCloneTests
 {
-    // GP-03 / GP-T10: OS boundary cô lập; không chạy Cloudbase hay cài service thật.
+    // GP-03 / GP-T10: Isolate the OS boundary without running Cloudbase or installing services.
     [Theory]
     [InlineData("success", 0, "MainServiceStarted")]
     [InlineData("plugin-tamper", 10, "Verify clone service")]

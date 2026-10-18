@@ -7,7 +7,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateDriverTests
 {
-    // GP-05 / GP-T11..12: CIM/native command boundary; đọc INF/SYS bytes thật từ package pinned.
+    // GP-05 / GP-T11..12: Test the CIM/native boundary using real INF/SYS bytes from the pinned package.
     [Theory]
     [InlineData("current", 259, true, "AlreadyCurrent", false)]
     [InlineData("install", 259, true, "InstallRequested", false)]

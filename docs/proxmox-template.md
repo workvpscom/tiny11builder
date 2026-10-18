@@ -1,36 +1,38 @@
-# ISO tự đủ và Proxmox VM template v20
+# Self-contained ISO and Proxmox VM template
 
-## Phạm vi bàn giao
+English (default) | [Tiếng Việt](proxmox-template.vi.md)
 
-Source hiện tại build ISO tích hợp payload; không cần patch Windows sau cài. Proxmox dùng chức năng chuẩn, không mod node, không host Apply script hoặc `cicustom`.
+## Scope
 
-- Tiny11 Core / Windows 11 Pro x64, build26300.9457.
-- Cloudbase-Init1.1.9, QGA110.2.3, ConfigDrive2.
-- Embedded reconciliation plugin xử lý hostname/password/IPv4 first boot và day-2; native ExtendVolumes mở rộng C:.
-- RDP bật sau credential reconciliation; NLA và Firewall giữ bật, remote scope Any theo approval.
-- Không cấu hình host automation ép giờ; administrator vẫn chỉnh thủ công. Không block QGA RPC hoặc đổi RTC/NTP.
+The opt-in profile builds an ISO containing the complete guest preparation payload. No post-install patch, Proxmox modification, host Apply script, or `cicustom` snippet is required.
 
-> Core loại bỏ Windows Update, Defender và nhiều component không thể phục hồi. Chỉ dùng khi chấp nhận đặc tính Core; không coi đây là Windows đầy đủ. License/activation do operator quản lý.
+- Validated with Tiny11 Core / Windows 11 Pro x64 build 26300.9457.
+- Cloudbase-Init 1.1.9, QEMU Guest Agent 110.2.3, and generated ConfigDrive2.
+- An embedded Cloudbase reconciliation plugin owns hostname, Administrator password, and IPv4 provisioning, including day-2 changes. Native ExtendVolumes expands C:.
+- RDP is enabled after credential reconciliation, with NLA and Windows Firewall enabled. The approved inbound scope is Any.
+- No host automation is configured to force guest time. Administrators can still adjust it manually; QGA RPCs, RTC settings, and Windows NTP are not restricted or changed for this purpose.
 
-## Build và cài từ ISO
+> Core removes Windows Update, Defender, and components that cannot be restored. Use only when these limitations are acceptable. Licensing and activation remain the operator's responsibility.
 
-1. Build ứng dụng trên Windows theo [usage](usage.md), chọn Tiny11 Core, import recipe JSON có `"TemplateProfile": "ProxmoxCloudbaseInit"`. Profile mặc định off; không tự bật cho builds thường.
-2. Dùng Windows11Pro x64 media phù hợp. Builder download/verify pinned installers và bundle helpers/config/manifest vào ISO; không cài agents trên build host.
-3. Tạo VM UEFI/OVMF + TPM2.0, SATA OS disk20GiB, E1000 NIC; CPU2/RAM4GiB đã được nghiệm thu. Boot ISO, chọn Pro, xử lý license/product key hợp lệ và chọn disk cài. Không có unattended disk wipe.
-4. Sau Setup, Audit preparation tự cài agents, verify payload/health, chạy Sysprep generalize và shutdown. Không boot lại VM nguồn để thử.
-5. Tháo installation ISO; giữ boot OS disk. Thêm Cloud-Init drive chuẩn, chọn ConfigDrive2, convert thành template. Không cần chạy patch script.
+## Build and install
 
-Không coi ISO là template: ISO là media cài; template là VM đã chuẩn bị và shutdown.
+1. Build the Windows application as described in [usage](usage.md). Select Tiny11 Core and import a recipe containing `"TemplateProfile": "ProxmoxCloudbaseInit"`. The profile is off by default.
+2. Use compatible Windows 11 Pro x64 media. The builder downloads and verifies pinned installers, then bundles agents, helpers, configuration, and manifests. It does not install guest agents on the build host.
+3. Create an OVMF/UEFI VM with TPM 2.0, a 20 GiB SATA OS disk, and an E1000 NIC. Two CPUs and 4 GiB RAM were validated. Boot the ISO, select Pro, handle licensing/product-key prompts, and select the installation disk. No unattended disk wipe is configured.
+4. After Setup, Audit preparation automatically installs agents, verifies payload and health, runs Sysprep generalize, and shuts down. Do not boot the prepared source again for testing.
+5. Detach the installation ISO, retain OS-disk boot, add a native Cloud-Init drive using ConfigDrive2, and convert the stopped VM to a template.
 
-## Restore archive trên server khác
+The ISO is installation media, not a prepared VM template.
 
-Archive đã nghiệm thu: `vzdump-qemu-windows-11-tiny.vma.zst` (4.141.754.422 bytes).
+## Restore on another server
+
+Validated archive: `vzdump-qemu-windows-11-tiny.vma.zst` (4,141,754,422 bytes).
 
 ```text
 SHA-256: 04c325914c3c2a3e30e1828c1d7e6b61e428694b270d929a9c9e1efbde85cc7f
 ```
 
-Copy archive sang storage backup server đích. Kiểm checksum trước restore. Chọn VMID trống và storage có đủ chỗ:
+Copy the archive to the destination server and verify its checksum. Choose an unused VMID and storage with sufficient capacity:
 
 ```bash
 sha256sum /path/template.vma.zst
@@ -38,46 +40,46 @@ qmrestore /path/template.vma.zst NEW_TEMPLATE_ID --storage TARGET_STORAGE --uniq
 qm config NEW_TEMPLATE_ID
 ```
 
-Kiểm `template: 1`, disk20GiB, EFI/TPM và Cloud-Init drive. Nếu phiên bản restore không giữ template flag, VM phải stopped rồi `qm template NEW_TEMPLATE_ID`.
+Verify `template: 1`, the 20 GiB OS disk, EFI/TPM disks, and Cloud-Init drive. If restore does not preserve the template flag, keep the VM stopped and run `qm template NEW_TEMPLATE_ID`.
 
-Map bridge theo server đích qua GUI Hardware → Network Device. CPU đang `host`; có thể chọn CPU model phù hợp môi trường bằng GUI trước clone. Q35 machine version9.0 cần QEMU hỗ trợ; chỉ đổi compatibility model sau kiểm tương thích. Storage/bridge/CPU mapping là cấu hình native, không patch Proxmox.
+Map the network bridge through Hardware → Network Device. The validated configuration uses CPU `host` and Q35 machine version 9.0; choose a supported CPU/machine model for the destination environment after checking compatibility. Storage, bridge, and CPU mapping are standard configuration, not Proxmox patches.
 
-Không boot template. Full clone sang VMID trống:
+Do not boot the template. Create a full clone:
 
 ```bash
 qm clone NEW_TEMPLATE_ID NEW_VM_ID --full 1 --name YOUR_HOSTNAME
 ```
 
-Trong GUI Cloud-Init đặt Administrator password riêng, IPv4/gateway/DNS; regenerate image trước Start. Không dùng password mẫu hoặc credentials lab. ConfigDrive2 do Proxmox tự tạo; không cần custom snippets. Lần boot đầu có thể mất vài phút; hostname có thể cần reboot tự động.
+In Cloud-Init, set a unique Administrator password and the required IPv4, gateway, and DNS settings. Regenerate the Cloud-Init image before starting the clone. Proxmox generates ConfigDrive2; no custom snippets or shared passwords are needed. First boot can take several minutes, and hostname application may require an automatic reboot.
 
-## Day-2 và tăng disk
+## Day-2 changes and disk growth
 
-- Đổi hostname/password/IP qua GUI/API, regenerate Cloud-Init image, controlled reboot VM. Kiểm actual Windows config và đăng nhập mới.
-- Không đổi metadata thì plugin không overwrite thay đổi trực tiếp trong Windows. Không reset plugin cache/state để ép chạy.
-- Tăng virtual OS disk qua Hardware → Resize disk; reboot để native ExtendVolumes mở rộng C:. Không shrink. Nguồn/template giữ20GiB.
+- Change hostname, password, or IP through the Proxmox GUI/API, regenerate the image, and perform a controlled reboot. Verify the resulting Windows configuration and authentication.
+- Unchanged metadata does not overwrite direct Windows edits. Do not reset plugin state to force replay.
+- Grow the OS disk through Hardware → Resize disk, then reboot for native ExtendVolumes to expand C:. Never shrink the disk. Keep the source template at 20 GiB.
 
-## Evidence và giới hạn
+## Verification and limitations
 
-| Hạng mục | Kết quả |
+| Check | Result |
 |---|---|
-| Source/tests so với snapshot v20 | 95 file khớp SHA-256 |
-| Windows suite / publish / parser | 483/483, publish và parser PASS |
+| Source/tests against v20 snapshot | 95 files matched SHA-256 before the English-only follow-up |
+| Windows suite / publish / parser | 483/483 tests; publish and parser PASS in v20 receipts |
 | Python reconciliation tests | 32/32 PASS |
-| Clean ISO install → Audit → Sysprep shutdown | PASS; không patch guest |
-| Hai clone / SID-500 / password isolation / day-2 A→B→A | PASS |
-| Bounded CPU/RAM/RDP reliability | PASS qua hai run, không một run12phút |
-| Native stopped-source backup → restore9104 | PASS, template/EFI/TPM/20GiB giữ |
-| Clone từ restore | Password A→B→A, hostname/IP change, resize20→36GiB và RDP reconnect PASS |
-| VSS | Writers/provider readiness PASS; chưa live-backup consistency test |
-| Gateway/DNS-only alternate-endpoint | DEFERRED theo user |
-| Nhiều server thực địa | Chưa có server thứ hai; native restore đã kiểm trên node hiện tại |
+| Clean ISO installation → Audit → Sysprep shutdown | PASS without guest patches |
+| Two clones / SID-500 / credential isolation / day-2 A→B→A | PASS |
+| Bounded CPU/RAM/RDP reliability | PASS across two runs, not one continuous 12-minute run |
+| Stopped-source backup and native restore | PASS; template flag, EFI/TPM, and 20 GiB OS disk preserved |
+| Clone from restored template | Password A→B→A, hostname/IP changes, 20→36 GiB growth, marker integrity, and RDP reconnect PASS |
+| VSS | Writers/provider readiness PASS; live-backup consistency not tested |
+| Gateway/DNS-only alternate endpoints | Deferred by the operator |
+| Multiple physical servers | Not tested; native restore validated on the original node |
 
-V20 build runner không capture được exit code; không báo exit0. Output độc lập đã inspect PASS, source state sạch và hash kiểm tại node. Có Sysprep BCD/WaaSMedic errors trong diagnostics dù success tag/shutdown và clone tests đạt; không gọi logs error-free.
+The v20 build runner did not capture its exit code. Independent output inspection passed, the prepared source was checked for consumed runtime state, and the node-side artifact hash was verified. Sysprep diagnostics retain BCD/WaaSMedic errors despite a success tag, shutdown, and successful clone tests; logs are not claimed to be error-free.
 
-Một restored-clone boot trước hiện menu hai Windows entries và cần Enter một lần; nguyên nhân observation đó chưa xác định. Đã recreate fresh clone từ restored template, đặt metadata trước Start và kiểm first boot không phím: Applied/login-ready sau303giây, đúng hostname/IP/password. Các controlled reboots và cold boot cũng tự hoàn tất. Không patch BCD; default current Windows, timeout30s.
+One earlier restored-clone boot displayed two Windows boot entries and required Enter; its cause remains unexplained. A newly recreated clone subsequently completed unattended first boot in 303 seconds with correct hostname, IP, and credentials. Controlled reboots and a cold boot also completed without key input. BCD was not patched; its default is the current Windows entry with a 30-second timeout.
 
-Artifact pins và driver hashes nằm trong `C:\ProgramData\Tiny11Template\manifest.json`; helper inventory trong `guest-files.json` của payload/ISO. `report.json` trong working directory của mỗi build ghi Core compatibility preservation thực tế; source `TemplateArtifactAcquirer.cs` và `TemplatePayloadStager.cs` giữ pins đã kiểm. Không dùng danh sách preservation suy đoán thay report.
+Artifact pins and driver hashes are recorded in `C:\ProgramData\Tiny11Template\manifest.json`; `guest-files.json` records helper inventory. Each build's working-directory `report.json` records actual Core compatibility preservation. Pins are maintained in `TemplateArtifactAcquirer.cs` and `TemplatePayloadStager.cs`; do not replace report evidence with an assumed preservation list.
 
-Trước backup, kiểm `/etc/vzdump.conf` và hook hiện có để tránh side effect ngoài dự kiến. Trong lab, global hook đã upload/move archive và chạy retention; archive được copy lại và verify trước restore. Template không phụ thuộc hook này.
+Before running a backup, inspect `/etc/vzdump.conf` and any existing hooks for side effects. The lab's global hook uploaded/moved the archive and ran retention; the archive was copied back and verified before restore. The template does not depend on that hook.
 
-ISO v20: `tiny11-core-proxmox-test-v20.iso`, 4.855.713.792 bytes, SHA-256 `A0BEEC347242D3D339A6CA2B1EA4EB884AB7950F8CD0A4EC779665C5289155F3`.
+Validated ISO: `tiny11-core-proxmox-test-v20.iso`, 4,855,713,792 bytes, SHA-256 `A0BEEC347242D3D339A6CA2B1EA4EB884AB7950F8CD0A4EC779665C5289155F3`.

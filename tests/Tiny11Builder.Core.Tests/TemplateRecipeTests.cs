@@ -5,7 +5,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateRecipeTests
 {
-    // TM-01 / TM-T01: recipe cũ không tự bật template profile.
+    // TM-01 / TM-T01: Legacy recipes do not implicitly enable the template profile.
     [Fact]
     public void Legacy_recipe_without_template_field_keeps_profile_disabled()
     {
@@ -26,7 +26,7 @@ public sealed class TemplateRecipeTests
         }
     }
 
-    // TM-02 / TM-T03: enum không được hỗ trợ phải bị từ chối.
+    // TM-02 / TM-T03: Reject unsupported enum values.
     [Fact]
     public void Unknown_template_profile_is_rejected()
     {
@@ -35,7 +35,7 @@ public sealed class TemplateRecipeTests
         Assert.Throws<InvalidDataException>(() => recipe.ValidateOptions());
     }
 
-    // TM-02 / TM-T03: chỉ fixed Core hoặc legacy equivalent được dùng profile.
+    // TM-02 / TM-T03: Only fixed Core or its legacy equivalent may use the profile.
     [Theory]
     [InlineData(BuildMode.Tiny11)]
     [InlineData(BuildMode.Custom)]
@@ -53,7 +53,7 @@ public sealed class TemplateRecipeTests
         Assert.Throws<InvalidDataException>(() => recipe.ValidateOptions());
     }
 
-    // TM-02 / TM-T03: legacy recipe lỗi phải trả validation error.
+    // TM-02 / TM-T03: Invalid legacy recipes return validation errors.
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -71,7 +71,7 @@ public sealed class TemplateRecipeTests
         Assert.Throws<InvalidDataException>(() => recipe.ValidateOptions());
     }
 
-    // TM-02 / TM-T03: legacy Core phải có đúng fixed removal set.
+    // TM-02 / TM-T03: Legacy Core requires the exact fixed removal set.
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -88,7 +88,7 @@ public sealed class TemplateRecipeTests
         else Assert.Throws<InvalidDataException>(() => recipe.ValidateOptions());
     }
 
-    // TM-02 / TM-T03: architecture từ metadata bị reject trước export/job.
+    // TM-02 / TM-T03: Reject unsupported metadata architecture before export/job creation.
     [Fact]
     public async Task Template_profile_rejects_arm64_before_creating_a_job()
     {
@@ -107,7 +107,7 @@ public sealed class TemplateRecipeTests
         Assert.False(Directory.Exists(recipe.WorkspacePath));
     }
 
-    // TM-07 / TM-T09: không adopt job không tồn tại khi resume profile.
+    // TM-07 / TM-T09: Do not adopt a missing job when resuming the profile.
     [Fact]
     public async Task Template_profile_cannot_resume_a_missing_job()
     {
@@ -119,7 +119,7 @@ public sealed class TemplateRecipeTests
         Assert.Empty(fixture.Runner.Calls);
     }
 
-    // TM-02 / TM-T02: public recipe IO giữ profile đã chọn.
+    // TM-02 / TM-T02: Public recipe IO preserves the selected profile.
     [Fact]
     public void Template_profile_survives_recipe_round_trip()
     {

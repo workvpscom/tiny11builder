@@ -882,7 +882,7 @@ public sealed partial class MainWindow : Window
         text.AppendLine($"MODE        {(ModeChoice.SelectedItem as ComboBoxItem)?.Content}");
         if (SelectedMode == BuildMode.Custom) text.AppendLine($"CORE REMOVALS {UsesCore}");
         if (recipe.TemplateProfile != TemplateProfile.None)
-            text.AppendLine($"TEMPLATE    {recipe.TemplateProfile} — Audit preparation tự động; chưa chứng nhận boot/guest compatibility.");
+            text.AppendLine($"TEMPLATE    {recipe.TemplateProfile} — Automatic Audit preparation; boot/guest compatibility requires validation.");
         text.AppendLine($"SOURCE      {recipe.SourcePath}");
         text.AppendLine($"OUTPUT      {recipe.OutputPath}");
         text.AppendLine($"WORKSPACE   {recipe.WorkspacePath}");

@@ -1,4 +1,4 @@
-﻿# Finalize chỉ guest template đang Audit; không chạy trên build host.
+﻿# Finalize only an Audit-mode template guest, never the build host.
 #Requires -RunAsAdministrator
 param([string]$InvocationContext = '')
 $ErrorActionPreference = 'Stop'
@@ -18,7 +18,7 @@ try {
         if (-not $candidate.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase) -or
             (Get-FileHash $candidate).Hash -ne $file.Sha256) { throw 'Finalization payload integrity failed' }
     }
-    # Không execute helper trước khi bytes trong payload được verify.
+    # Verify payload bytes before executing helpers.
     . (Join-Path $root 'Template-State.ps1')
     if (Test-TemplateRebootOutstanding -State $prepared -CurrentBootIdentity $bootIdentity) { throw 'Installer reboot requirement has not been satisfied' }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -51,7 +51,7 @@ try {
     $answer = Join-Path $root 'template-unattend.xml'
     if (-not (Test-Path $answer)) { throw 'Final answer file missing' }
     if (@(Get-Process sysprep -ErrorAction SilentlyContinue).Count -gt 0) { throw 'Another Sysprep process is running; retain guest for diagnosis' }
-    # Password ngẫu nhiên riêng VM, không ghi/log; clone nhận password qua ConfigDrive.
+    # Generate a per-VM password without persisting/logging it; clones use ConfigDrive credentials.
     $random = New-Object byte[] 48
     $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($random) } finally { $rng.Dispose() }
@@ -59,7 +59,7 @@ try {
     Set-LocalUser -SID $admin.SID -Password $secret
     $secret = $null
     [Array]::Clear($random, 0, $random.Length)
-    # Service giữ Disabled qua Sysprep; clone specialize mới chuyển Auto.
+    # Keep the service Disabled through Sysprep; clone specialize switches it to Auto.
     @{Stage='SysprepStarting';Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
     $sysprep = Join-Path $env:WINDIR 'System32\Sysprep\Sysprep.exe'
     $process = Start-Process $sysprep -ArgumentList "/generalize /oobe /shutdown /quiet /unattend:$answer" -PassThru
@@ -70,7 +70,7 @@ try {
     @{Stage='SysprepReturned';Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
     exit 0
 } catch {
-    # Failure không để lần reboot chẩn đoán tự consume metadata preparation.
+    # Prevent diagnostic reboots after failure from consuming preparation metadata.
     if ($contextValidated) { Set-Service cloudbase-init -StartupType Disabled -ErrorAction SilentlyContinue }
     @{Stage='Failed';Error=$_.Exception.Message;Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
     exit 10

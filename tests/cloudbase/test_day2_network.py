@@ -1,4 +1,4 @@
-"""D2-T03: parser upstream thật, không Windows mutations."""
+"""D2-T03: actual upstream parser without Windows mutations."""
 import importlib.util
 import pathlib
 import types

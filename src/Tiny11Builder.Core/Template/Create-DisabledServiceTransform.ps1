@@ -1,4 +1,4 @@
-﻿# Biến đổi MSI database copy; không chạy installer hoặc service.
+﻿# Transform a copy of the MSI database without running the installer or service.
 param([Parameter(Mandatory=$true)][string]$Source, [Parameter(Mandatory=$true)][string]$Destination)
 $ErrorActionPreference='Stop'
 $temporary=$Destination+'.database.msi'

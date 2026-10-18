@@ -8,7 +8,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateEntrypointTests
 {
-    // GP-01 / GP-T09: chạy entrypoint trong sandbox, mọi OS mutation bị stub.
+    // GP-01 / GP-T09: Run the entrypoint in a sandbox with all OS mutations stubbed.
     [Fact]
     public async Task Finalizer_rejects_tampered_helper_before_execution()
     {
@@ -24,11 +24,11 @@ public sealed class TemplateEntrypointTests
             await File.WriteAllTextAsync(manifestPath, manifest, new UTF8Encoding(true));
             await File.WriteAllTextAsync(Path.Combine(payload, "prepared.json"),
                 JsonSerializer.Serialize(new { ManifestSha256 = Hash(manifestPath) }), new UTF8Encoding(true));
-            // Hash trong manifest giữ nguyên; altered helper có tác dụng quan sát được nếu bị execute.
+            // Keep manifest hashes unchanged; the altered helper has an observable effect if executed.
             await File.AppendAllTextAsync(helper,
                 "\n[IO.File]::WriteAllText((Join-Path $env:ProgramData 'helper-executed'), 'unexpected')\n");
             var scriptPath = Path.Combine(payload, "Finalize-Template.ps1");
-            // Chỉ bỏ elevation directive trên bản sao test. Production không có sandbox bypass.
+            // Remove the elevation directive only from the test copy; production has no sandbox bypass.
             await File.WriteAllTextAsync(scriptPath,
                 TemplateGuestAssets.FinalizeScript.Replace("#Requires -RunAsAdministrator", "", StringComparison.Ordinal), new UTF8Encoding(true));
             var harness = Path.Combine(sandbox, "harness.ps1");

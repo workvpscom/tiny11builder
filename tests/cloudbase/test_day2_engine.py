@@ -1,4 +1,4 @@
-"""D2-T01: actual pinned InitManager scheduling gọi plugin entrypoint; OS giả lập."""
+"""D2-T01: actual pinned InitManager scheduling invokes the plugin with a simulated OS."""
 import ast
 import hashlib
 import pathlib

@@ -1,4 +1,4 @@
-# Policy chỉ thuộc profile opt-in, không thay RTC hoặc cưỡng ép chỉnh clock.
+# Opt-in policy only; do not change RTC or force clock corrections.
 #Requires -RunAsAdministrator
 param([switch]$VerifyOnly, [switch]$ActivateRdp)
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,7 @@ $ruleName = 'Tiny11TemplateRdp'
 if (-not $VerifyOnly -and $ActivateRdp) {
     Set-ItemProperty $terminal -Name fDenyTSConnections -Value 0
     Set-ItemProperty $rdp -Name UserAuthentication -Value 1
-    # User đã duyệt mọi nguồn; không tắt firewall hoặc nhúng địa chỉ lab.
+    # Allow all approved remote sources without disabling the firewall or embedding lab addresses.
     Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
     $existing = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     if ($existing) { Remove-NetFirewallRule -Name $ruleName }
@@ -17,7 +17,7 @@ if (-not $VerifyOnly -and $ActivateRdp) {
     Start-Service TermService
 }
 if (-not $VerifyOnly) {
-    # Giữ NTP peer hiện hành; chỉ bật Windows service, không w32tm/resync.
+    # Preserve the current NTP peer; enable only the Windows service, without resync.
     $parameters = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters'
     if ([string]::IsNullOrWhiteSpace($parameters.NtpServer)) { throw 'Windows time peer policy missing' }
     Set-Service W32Time -StartupType Automatic

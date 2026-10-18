@@ -1,4 +1,4 @@
-"""D2-T01..04: public Cloudbase plugin entrypoint, OS/state seams giả lập."""
+"""D2-T01..04: public Cloudbase plugin entrypoint with simulated OS/state seams."""
 import copy
 import importlib.util
 import pathlib
@@ -6,7 +6,7 @@ import types
 import unittest
 import sys
 
-# Stub chỉ trong test host; production không có fallback Cloudbase giả.
+# Test-host stubs only; production has no simulated Cloudbase fallback.
 if importlib.util.find_spec('cloudbaseinit') is None:
     for name in ('cloudbaseinit', 'cloudbaseinit.plugins', 'cloudbaseinit.plugins.common'):
         stub = types.ModuleType(name)
@@ -187,7 +187,7 @@ class PluginTests(unittest.TestCase):
         self.execute()
         self.assertIn('network', self.store.data['applied'])
 
-    # PL-06 / D2-T03: dirty mutation phải được reconcile kể cả desired quay last-applied.
+    # Reconcile dirty mutations even when desired returns to last-applied.
     def test_failed_network_B_then_return_A_reapplies_A(self):
         self.execute()
         self.metadata.network['ip'] = '10.10.10.189'
@@ -200,7 +200,7 @@ class PluginTests(unittest.TestCase):
         self.execute()
         self.assertEqual([x[0] for x in self.backend.calls], ['network'])
 
-    # PL-05 / D2-T02: pending B có thể thành active sau reboot dù desired đã quay A.
+    # Pending B may become active after reboot even when desired has returned to A.
     def test_pending_rename_B_then_return_A_does_not_skip(self):
         self.execute()
         self.metadata.name = 'host-b'
@@ -211,7 +211,7 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(self.execute(), (2, True))
         self.assertEqual(self.backend.calls, [('hostname', 'host-a')])
 
-    # PL-05 / D2-T02: active vẫn A nhưng registry pending B phải được hủy.
+    # Cancel pending B in the registry even while active remains A.
     def test_pending_B_active_A_then_desired_A_cancels_pending(self):
         self.execute()
         self.metadata.name = 'host-b'
@@ -223,7 +223,7 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(self.backend.pending, 'host-a')
         self.assertEqual(self.backend.calls, [('hostname', 'host-a')])
 
-    # GP-07 / D2-T04: diagnostics lỗi không chặn boot sau khi metadata sửa đúng.
+    # Failed diagnostics must not block boot after metadata is corrected.
     def test_invalid_metadata_then_corrected_metadata(self):
         self.metadata.name = 'bad name'
         self.execute()
@@ -231,7 +231,7 @@ class PluginTests(unittest.TestCase):
         self.execute()
         self.assertIn('password', self.store.data['applied'])
 
-    # PL-07 / D2-T01: missingsecret ban đầu không chặn password xuất hiện sau.
+    # An initially missing secret must not block a password supplied later.
     def test_missing_password_then_supplied_later(self):
         self.metadata.password = None
         self.execute()
@@ -239,7 +239,7 @@ class PluginTests(unittest.TestCase):
         self.execute()
         self.assertIn(('password', 'Synthetic-Later!'), self.backend.calls)
 
-    # PL-07 / D2-T01: setter thành công nhưng journal chưa acknowledge phải reapply A.
+    # Reapply A when the setter succeeded but the journal was not acknowledged.
     def test_dirty_password_B_then_return_A_reapplies_A(self):
         self.execute()
         self.store.data['attempts']['password'] = {'target': 'other-target', 'count': 1, 'boot': 'boot-1', 'status': 'Applying'}
@@ -248,7 +248,7 @@ class PluginTests(unittest.TestCase):
         self.execute()
         self.assertEqual(self.backend.calls, [('password', 'Synthetic-Password-A!')])
 
-    # GP-07 / D2-T04: retry access không reapply password/network.
+    # Retrying access must not reapply password or network.
     def test_access_retry_does_not_repeat_mutations(self):
         attempts = []
         def access():
@@ -263,14 +263,14 @@ class PluginTests(unittest.TestCase):
         self.assertTrue(self.store.data['access_ready'])
         self.assertEqual(self.backend.calls, [])
 
-    # GP-07 / D2-T04: thiếupasswordkhông mởRDP.
+    # A missing password must not enable RDP.
     def test_missing_password_does_not_activate_access(self):
         self.metadata.password = None
         self.backend.activate_access = lambda: self.fail('Access activated without password')
         self.execute()
         self.assertNotIn('access_ready', self.store.data)
 
-    # PL-05 / D2-T02: successful lifecycle không tích lũy reboot budget vĩnh viễn.
+    # Successful lifecycles must not accumulate permanent reboot budgets.
     def test_five_hostname_A_B_A_cycles(self):
         self.execute()
         for index in range(5):
@@ -284,7 +284,7 @@ class PluginTests(unittest.TestCase):
                 self.assertEqual(self.store.data['applied']['hostname'], name)
         self.assertEqual(self.store.data['hostname_reboots'], {})
 
-    # GP-07 / D2-T04: auto-reboot cùng desired có giới hạn, không reset theo boot.
+    # Bound automatic reboots for the same desired state across boots.
     def test_hostname_auto_reboot_budget_does_not_reset(self):
         self.metadata.name = 'host-b'
         requests = 0
@@ -294,7 +294,7 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(requests, 3)
         self.assertEqual(self.store.data['attempts']['hostname']['status'], 'BlockedRebootLimit')
 
-    # GP-07 / D2-T04: corrupt journal không được gọi mutation.
+    # A corrupt journal must not invoke mutations.
     def test_corrupt_attempt_schema_rejected(self):
         for record in ({'count': '3'}, {'target': 'x', 'boot': [], 'count': 1, 'status': 'Applying'}):
             with self.assertRaises(ValueError):

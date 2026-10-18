@@ -6,7 +6,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateUnattendTests
 {
-    // PL-03: workaround A chỉ final clone answer, không credentials/Audit.
+    // PL-03: Workaround A applies only to the final clone answer, without credentials or Audit.
     [Fact]
     public void Clone_answer_uses_approved_oobe_workaround_without_shared_credentials()
     {
@@ -24,7 +24,7 @@ public sealed class TemplateUnattendTests
         Assert.Contains(answer.Descendants(ns + "Path"), path => path.Value == @"powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\Tiny11Template\Initialize-Clone.ps1");
     }
 
-    // GP-06: Audit trigger chỉ thuộc profile và không bake credentials/disk wipe.
+    // GP-06: The Audit trigger is profile-only and embeds neither credentials nor disk wiping.
     [Fact]
     public void Template_answer_file_enters_audit_without_credentials_or_disk_wipe()
     {

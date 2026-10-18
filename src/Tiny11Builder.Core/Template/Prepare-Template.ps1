@@ -1,4 +1,4 @@
-﻿# Chuẩn bị guest trong Audit mode; chỉ profile template gọi script này.
+﻿# Prepare the guest in Audit mode; invoked only by the template profile.
 #Requires -RunAsAdministrator
 param([string]$InvocationContext = '')
 $ErrorActionPreference = 'Stop'
@@ -33,7 +33,7 @@ try {
     . (Join-Path $root 'Template-State.ps1')
     Assert-TemplatePreparationContext -Context $context
     $contextValidated = $true
-    # Chỉ quarantine sau khi launcher/payload/identity đã được xác minh.
+    # Quarantine only after validating launcher, payload, and identity.
     $existingCloudbase = Get-Service cloudbase-init -ErrorAction SilentlyContinue
     if ($null -ne $existingCloudbase) {
         Stop-Service cloudbase-init -ErrorAction Stop
@@ -132,7 +132,7 @@ try {
     if ($null -eq $admin -or $admin.Name -ne 'Administrator') { throw 'Built-in Administrator identity mismatch' }
     @{Stage='Installed';ManifestSha256=$manifestHash;RebootRequested=$reboot;BootIdentity=$bootIdentity;Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content (Join-Path $root 'prepared.json') -Encoding UTF8
     @{Stage='Prepared';Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
-    # WillReboot=OnRequest:1 yêu cầu Windows Setup reboot rồi chạy command tiếp.
+    # WillReboot=OnRequest: exit 1 requests a Setup reboot before the next command.
     if ($reboot) { exit 1 }
     exit 0
 } catch {
@@ -141,6 +141,6 @@ try {
         Stop-Service cloudbase-init -ErrorAction SilentlyContinue
     }
     @{Stage=$stage;State='Failed';Error=$_.Exception.Message;Context=$context;Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
-    # Không dùng1/2: đây là reboot request codes, không phải error codes.
+    # Do not use 1/2 for errors: they are reboot request codes.
     exit 10
 }

@@ -8,7 +8,7 @@ namespace Tiny11Builder.Core.Tests;
 [SupportedOSPlatform("windows")]
 public sealed class TemplatePipelineTests
 {
-    // TM-07: actual pinned artifacts và real verifier, fake DISM boundary.
+    // TM-07: Use actual pinned artifacts and the real verifier with a fake DISM boundary.
     [Fact]
     public async Task Template_checkpoint_preserves_payload_and_resumes_without_cache_when_configured()
     {
@@ -56,7 +56,7 @@ public sealed class TemplatePipelineTests
         Assert.False(report.RootElement.GetProperty("BootValidated").GetBoolean());
     }
 
-    // TM-07: manifest/payload tamper từ chối trước mutation.
+    // TM-07: Reject manifest/payload tampering before mutation.
     [Fact]
     public async Task Changed_template_payload_is_refused_on_resume_when_configured()
     {
@@ -80,7 +80,7 @@ public sealed class TemplatePipelineTests
         Assert.DoesNotContain(fixture.Runner.Calls.Skip(calls), JobScenarios.Mutating);
     }
 
-    // TM-04 / TM-T11: semantic policy chặn publish dù file thuộc media inventory hợp lệ.
+    // TM-04 / TM-T11: Semantic policy prevents publication even when media inventory is valid.
     [Fact]
     public async Task Invalid_initial_answer_is_refused_before_iso_creation_when_configured()
     {
@@ -108,7 +108,7 @@ public sealed class TemplatePipelineTests
         Assert.False(File.Exists(recipe.OutputPath));
     }
 
-    // TM-04 / TM-T13: manifest hợp lệ không được che encoding sai cho parser thật.
+    // TM-04 / TM-T13: A valid manifest must not hide invalid encoding from the actual parser.
     [Fact]
     public async Task Configuration_bom_is_refused_even_with_updated_manifest_when_configured()
     {

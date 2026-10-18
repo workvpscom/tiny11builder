@@ -5,7 +5,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplatePayloadTests
 {
-    // TM-03 / TM-T04: cancellation trước verify không tạo payload.
+    // TM-03 / TM-T04: Cancellation before verification creates no payload.
     [Fact]
     public async Task Cancelled_staging_creates_no_payload()
     {
@@ -17,7 +17,7 @@ public sealed class TemplatePayloadTests
             "unused.msi", "unused-job", cancellation.Token));
     }
 
-    // TM-04 / TM-T05: không ghi đè installer đã có trong owned job.
+    // TM-04 / TM-T05: Do not overwrite an installer already present in the owned job.
     [Fact]
     public async Task Existing_payload_is_never_overwritten()
     {
@@ -38,7 +38,7 @@ public sealed class TemplatePayloadTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    // TM-04 / TM-T05: opt-in Windows test dùng đúng publisher artifact thật.
+    // TM-04 / TM-T05: The opt-in Windows test uses the actual publisher artifact.
     [Fact]
     public async Task Approved_cloudbase_installer_stages_with_signature_receipt_when_configured()
     {
@@ -64,7 +64,7 @@ public sealed class TemplatePayloadTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    // TM-03 / TM-T04: bytes không đúng pin publisher không được stage.
+    // TM-03 / TM-T04: Bytes that do not match the publisher pin must not be staged.
     [Fact]
     public async Task Corrupt_cloudbase_installer_is_rejected_before_staging()
     {

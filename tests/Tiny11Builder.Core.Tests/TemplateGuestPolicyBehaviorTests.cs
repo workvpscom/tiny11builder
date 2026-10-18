@@ -6,7 +6,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateGuestPolicyBehaviorTests
 {
-    // GP-08 / GP-T14: thực thi helper với cmdlets cô lập, không thay host.
+    // GP-08 / GP-T14: Execute the helper with isolated cmdlets without changing the host.
     [Theory]
     [InlineData("prepare", 0)]
     [InlineData("activate", 0)]

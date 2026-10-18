@@ -210,7 +210,7 @@ public sealed class TemplatePayloadStager(IProcessRunner runner)
         PathSafety.RejectReparsePoints(destination);
         var final = Path.Combine(destination, "CloudbaseInitSetup_1_1_9_x64.msi");
         if (File.Exists(final)) throw new IOException("Template installer destination already exists.");
-        // Giữ handle không cho write/delete trong lúc verify signature và copy trên Windows.
+        // Deny writes/deletes while verifying the signature and copying on Windows.
         await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
             1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan);
         var digest = Convert.ToHexString(await SHA256.HashDataAsync(input, token).ConfigureAwait(false));

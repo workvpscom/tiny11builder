@@ -1,4 +1,4 @@
-"""AC-I1/I2: integrity trước spawn, không thay Windows policy E2E."""
+"""AC-I1/I2: verify integrity before spawn; not a Windows policy E2E test."""
 import hashlib
 import json
 import os

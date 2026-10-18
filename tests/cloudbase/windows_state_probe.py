@@ -1,4 +1,4 @@
-"""D2-T04: chạy trên Windows bundled Python, state sandbox riêng; không provision host."""
+"""D2-T04: Windows bundled Python with isolated state; never provision the host."""
 import importlib.util
 import json
 import os
@@ -46,10 +46,10 @@ with t.locked(): print(t.fingerprint('synthetic-only'))
         ace=acl.GetAce(index)
         assert win32security.ConvertSidToStringSid(ace[-1]) in allowed
     store.path.write_text(saved,encoding='utf-8')
-    # Killed writer trướcreplace phải giữ nguyên committedstate.
+    # A writer killed before replace must preserve committed state.
     killed = subprocess.run([sys.executable,'-c',"import os,pathlib,sys;p=pathlib.Path(sys.argv[1]);f=open(p/'.pending-killed','wb');f.write(b'broken');f.flush();os.fsync(f.fileno());os._exit(9)",str(store.root)])
     assert killed.returncode == 9 and store.path.read_text()==saved
-    # Reparsefile checks, không cần quyền tạo symlink: junction root luônavailableadmin.
+    # Check reparse files using an administrator-created junction, without symlink privileges.
     junction=pathlib.Path(temporary)/'junction'
     subprocess.run(['cmd.exe','/c','mklink','/J',str(junction),str(store.root)],check=True,stdout=subprocess.DEVNULL)
     try:
@@ -57,7 +57,7 @@ with t.locked(): print(t.fingerprint('synthetic-only'))
         except ValueError: pass
         else: raise AssertionError('Junction accepted')
     finally: os.rmdir(junction)
-    # Key mất với existingstate không đượcgeneratekeymới.
+    # A missing key with existing state must not generate a replacement key.
     keypath=store.root/'key.dpapi'; original=keypath.read_bytes();keypath.unlink()
     try:
         try: store.fingerprint('synthetic-only')

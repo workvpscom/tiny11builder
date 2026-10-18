@@ -1,4 +1,4 @@
-"""Cloudbase extension: chỉ reconcile metadata Proxmox trong profile opt-in."""
+"""Cloudbase extension reconciling Proxmox metadata for the opt-in profile."""
 import base64
 import contextlib
 import hashlib
@@ -76,7 +76,7 @@ def _network(service):
         raise ValueError('Missing network metadata')
     modes = re.findall(r'^\s*iface\s+(?!lo\s)\S+\s+inet\s+(\S+)\s*$', content, re.MULTILINE)
     if modes == ['dhcp']:
-        # DHCP lần đầu giữ inbox defaults; không coi inventory này là network verification.
+        # Initial DHCP preserves inbox defaults; inventory is not network verification.
         return None
     if modes != ['static']:
         raise ValueError('Unsupported or missing IPv4 network definition')
@@ -118,7 +118,7 @@ class PrivateState:
             lock.seek(0)
             msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
             try:
-                # Key tồn tại trước diagnostics/state; validation failure không làm kẹt bootstrap.
+                # Create the key before diagnostics/state so validation failures do not block bootstrap.
                 self.fingerprint('state-initialization')
                 yield
             finally:
@@ -259,7 +259,7 @@ class WindowsBackend:
             return winreg.QueryValueEx(key, 'ComputerName')[0].lower()
 
     def apply_hostname(self, name):
-        # Gọi setter trực tiếp để hủy pending rename kể cả active đã bằng desired.
+        # Call the setter to cancel pending renames even when the active name already matches.
         self.osutils.set_host_name(name)
         if self.pending_hostname() != name:
             raise RuntimeError('Pending hostname postcondition failed')
@@ -278,7 +278,7 @@ class WindowsBackend:
         interface = self.interface.replace("'", "''")
         expected_dns = desired['dns']
         for _ in range(10):
-            # Không đánh dấu applied trước khi IP/routes/DNS hiện hữu đúng.
+            # Mark applied only after verifying the actual IP, routes, and DNS.
             raw = self._powershell("$i='" + interface + "';"
                 "$a=@(Get-NetIPAddress -InterfaceAlias $i -AddressFamily IPv4 | Select IPAddress,PrefixLength,AddressState);"
                 "$r=@(Get-NetRoute -InterfaceAlias $i -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select -ExpandProperty NextHop);"
@@ -327,7 +327,7 @@ class ProxmoxReconcilePlugin(base.BasePlugin):
             with store.locked() if hasattr(store, 'locked') else contextlib.nullcontext():
                 return self._reconcile(service, store)
         except Exception:
-            # Upstream logs exception strings; không để password/metadata thoát qua exception.
+            # Upstream logs exception strings; never leak passwords or metadata through them.
             from logging import getLogger
             getLogger(__name__).error('Tiny11 reconciliation failed; inspect private state and guest health')
             return 2, False
@@ -390,8 +390,8 @@ class ProxmoxReconcilePlugin(base.BasePlugin):
                 reboot_budget.pop(signature, None)
                 store.save(state)
                 continue
-            # Không tự reboot do retry failure. Sau 3 boot thất bại, dừng một boot,
-            # rồi cho retry batch mới qua reboot GUI/API; không cần sửa state bằng script.
+            # Do not reboot on retry failures. After three failed boots, pause for one boot,
+            # then allow another retry batch after a GUI/API reboot without manual state edits.
             if attempt.get('count', 0) >= MAX_ATTEMPTS and attempt.get('boot') != boot:
                 if attempt.get('status') == 'BlockedRetryLimit':
                     attempt = {'target': signature, 'count': 0, 'boot': None}
@@ -413,7 +413,7 @@ class ProxmoxReconcilePlugin(base.BasePlugin):
                 elif group == 'password':
                     backend.apply_password(password)
                 else:
-                    # Budget persist trước setter/reboot để interruption không mở loop mới.
+                    # Persist the budget before setters/reboots to prevent interruption loops.
                     reboot_budget[signature] = reboot_budget.get(signature, 0) + 1
                     store.save(state)
                     reboot = backend.apply_hostname(name)

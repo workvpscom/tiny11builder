@@ -1,4 +1,4 @@
-﻿# Dot-source chỉ định nghĩa functions; OS reads/mutations chỉ khi caller gọi rõ.
+﻿# Dot-sourcing defines functions only; OS reads/mutations require explicit calls.
 function Test-TemplateRebootOutstanding {
     param([Parameter(Mandatory=$true)]$State, [Parameter(Mandatory=$true)][string]$CurrentBootIdentity)
     if (-not $State.RebootRequested) { return $false }
@@ -59,14 +59,14 @@ function Initialize-TemplateSerialDriver {
     $after = Get-TemplateSerialDriverState
     @{ExitCode=$code;Before=$before;After=$after} | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $Root 'driver-observation.json') -Encoding UTF8
     if ($code -notin @(0,259,3010)) { throw "Driver install failed: $code" }
-    # 259 cũng có thể nghĩa là không có device phù hợp; tuyệt đối không cho qua nếu thiếu postcondition.
+    # Exit 259 may mean no matching device; require all postconditions.
     if ($code -ne 3010 -and -not $after.Healthy) { throw "Serial driver postcondition failed after pnputil: $code" }
     return [pscustomobject]@{State='InstallRequested';ExitCode=$code;RebootRequired=($outstanding -or $code -eq 3010);Observation=$after}
 }
 
 function Assert-TemplatePreparationContext {
     param([Parameter(Mandatory=$true)]$Context)
-    # InvocationContext là hợp đồng launcher, không tự chứng minh Windows đang Audit.
+    # InvocationContext is a launcher contract, not independent proof of Audit mode.
     if ($Context.InvocationContext -ne 'AuditUser' -or -not $Context.MarkerValid -or
         -not $Context.ManifestVerified -or -not $Context.RootMatches -or -not $Context.Elevated -or
         $Context.UserSid -notmatch '^S-1-5-21-\d+-\d+-\d+-500$') {

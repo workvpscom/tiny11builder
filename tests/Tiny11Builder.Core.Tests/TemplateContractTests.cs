@@ -8,7 +8,7 @@ public sealed class TemplateContractTests
 {
     private static readonly XNamespace Ns = "urn:schemas-microsoft-com:unattend";
 
-    // TM-04 / TM-T11: fixture hợp lệ đi qua cùng semantic boundary của build.
+    // TM-04 / TM-T11: A valid fixture crosses the same semantic boundary as the build.
     [Fact]
     public void Generated_answers_satisfy_template_policy()
     {
@@ -16,7 +16,7 @@ public sealed class TemplateContractTests
         TemplateContractValidator.ValidateFinalAnswer(TemplateGuestAssets.FinalAnswerFile());
     }
 
-    // TM-04 / TM-T11: negative expected từ launcher/ProductKey contract đã duyệt.
+    // TM-04 / TM-T11: Negative expectations follow the approved launcher/ProductKey contract.
     [Theory]
     [InlineData("launcher")]
     [InlineData("key")]
@@ -35,7 +35,7 @@ public sealed class TemplateContractTests
         Assert.Throws<InvalidDataException>(() => TemplateContractValidator.ValidateInitialAnswer(answer.ToString()));
     }
 
-    // TM-04 / TM-T11: clone không chứa credentials hoặc preparation trigger.
+    // TM-04 / TM-T11: The clone contains neither credentials nor a preparation trigger.
     [Theory]
     [InlineData("Password")]
     [InlineData("AutoLogon")]
@@ -54,14 +54,14 @@ public sealed class TemplateContractTests
         Assert.Throws<InvalidDataException>(() => TemplateContractValidator.ValidateFinalAnswer(answer.ToString()));
     }
 
-    // TM-04 / TM-T12: độc lập với hash manifest; config đã ký lại vẫn sai policy.
+    // TM-04 / TM-T12: Independent of manifest hashes: rehashed configuration can still violate policy.
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void Valid_configuration_satisfies_lifecycle_policy(bool main) =>
         TemplateContractValidator.ValidateConfiguration(main ? TemplateGuestAssets.MainConfiguration : TemplateGuestAssets.UnattendConfiguration, main);
 
-    // TM-04 / TM-T12: allowlist bảo vệ khỏi metadata/plugin ngoài scope.
+    // TM-04 / TM-T12: The allowlist rejects out-of-scope metadata and plugins.
     [Theory]
     [InlineData("ProxmoxReconcilePlugin", "UnknownPlugin")]
     [InlineData("ConfigDriveService", "HttpService")]
@@ -71,7 +71,7 @@ public sealed class TemplateContractTests
         Assert.Throws<InvalidDataException>(() => TemplateContractValidator.ValidateConfiguration(
             TemplateGuestAssets.MainConfiguration.Replace(from, to, StringComparison.Ordinal), true));
 
-    // TM-04 / TM-T13: byte boundary độc lập với BOM-aware ReadAllText.
+    // TM-04 / TM-T13: Check raw bytes independently of BOM-aware ReadAllText.
     [Fact]
     public void Configuration_encoding_rejects_bom()
     {

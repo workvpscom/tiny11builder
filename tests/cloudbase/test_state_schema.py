@@ -1,4 +1,4 @@
-"""AC-S1/S2: persisted state fail-closed tại plugin entrypoint."""
+"""AC-S1/S2: persisted state fails closed at the plugin entrypoint."""
 import contextlib
 import copy
 import json

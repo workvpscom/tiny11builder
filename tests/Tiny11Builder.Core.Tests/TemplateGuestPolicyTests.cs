@@ -5,7 +5,7 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateGuestPolicyTests
 {
-    // GP-08 / GP-T14: policy đã duyệt, không ép clock hoặc thay RTC.
+    // GP-08 / GP-T14: Approved policy does not force the clock or alter RTC.
     [Fact]
     public void Policy_keeps_nla_firewall_and_windows_time_management()
     {
@@ -20,7 +20,7 @@ public sealed class TemplateGuestPolicyTests
         Assert.DoesNotContain("10.10.", policy);
     }
 
-    // GP-08 / GP-T14: VerifyOnly không ghi policy; runtime checks vẫn phải thực hiện.
+    // GP-08 / GP-T14: VerifyOnly does not write policy; runtime checks remain necessary.
     [Fact]
     public void Preparation_and_finalize_verify_profile_policy_after_integrity()
     {

@@ -11,7 +11,7 @@ TestResults/
 *.vhd
 *.vhdx
 
-# Cache và evidence lab local, không thuộc source patch.
+# Local cache and lab evidence are not part of the source patch.
 .DS_Store
 .codegraph/
 .scratch/
