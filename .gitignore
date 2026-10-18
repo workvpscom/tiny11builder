@@ -10,3 +10,11 @@ TestResults/
 *.swm
 *.vhd
 *.vhdx
+
+# Cache và evidence lab local, không thuộc source patch.
+.DS_Store
+.codegraph/
+.scratch/
+__pycache__/
+*.pyc
+*.vma.zst

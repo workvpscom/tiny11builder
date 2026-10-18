@@ -25,6 +25,7 @@ public sealed partial class MainWindow : Window
     private ExpertAction[] pendingActions = [];
     private int? pendingImageIndex;
     private string pendingSourcePath = "";
+    private TemplateProfile templateProfile;
     private WindowsImage? image;
     private int step;
     private int reached;
@@ -327,7 +328,8 @@ public sealed partial class MainWindow : Window
         CompactInstallation = CompactCheck.IsOn, EnableNetFx3 = NetFxCheck.IsOn,
         PreferLocalAccount = LocalAccountCheck.IsOn, KeepWorkingFiles = KeepFilesCheck.IsOn,
         TurboMode = TurboCheck.IsOn, RemoveRedundantData = RedundantDataCheck.IsOn,
-        OmitNetFx3SetupPayload = OmitSetupCheck.IsOn
+        OmitNetFx3SetupPayload = OmitSetupCheck.IsOn,
+        TemplateProfile = templateProfile
     };
 
     private async Task RunOperation(OperationKind kind, Func<CancellationToken, Task> action)
@@ -879,6 +881,8 @@ public sealed partial class MainWindow : Window
         text.AppendLine($"IMAGE       {image?.Summary ?? "Not inspected"}");
         text.AppendLine($"MODE        {(ModeChoice.SelectedItem as ComboBoxItem)?.Content}");
         if (SelectedMode == BuildMode.Custom) text.AppendLine($"CORE REMOVALS {UsesCore}");
+        if (recipe.TemplateProfile != TemplateProfile.None)
+            text.AppendLine($"TEMPLATE    {recipe.TemplateProfile} — Audit preparation tự động; chưa chứng nhận boot/guest compatibility.");
         text.AppendLine($"SOURCE      {recipe.SourcePath}");
         text.AppendLine($"OUTPUT      {recipe.OutputPath}");
         text.AppendLine($"WORKSPACE   {recipe.WorkspacePath}");
@@ -1383,6 +1387,7 @@ public sealed partial class MainWindow : Window
         TurboCheck.IsOn = recipe.TurboMode;
         RedundantDataCheck.IsOn = recipe.RemoveRedundantData;
         OmitSetupCheck.IsOn = recipe.OmitNetFx3SetupPayload;
+        templateProfile = recipe.TemplateProfile;
         pendingActions = recipe.ExpertActions;
         pendingImageIndex = recipe.ImageIndex;
         pendingSourcePath = recipe.SourcePath;

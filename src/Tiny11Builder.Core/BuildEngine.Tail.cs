@@ -34,6 +34,8 @@ public sealed partial class BuildEngine
         public bool Mounted { get; set; }
         public MediaStagingResult? StagingResult { get; set; }
         public IReadOnlyList<ImageCleanupResult> Cleanup { get; set; } = [];
+        public IReadOnlyList<TemplateArtifactReceipt> TemplateArtifacts { get; set; } = [];
+        public string? TemplateManifestSha256 { get; set; }
         public List<FeatureRemovalVerification> Features { get; } = [];
         public List<RemovalVerification> Capabilities { get; } = [];
         public ResumeCheckpoint? Checkpoint { get; set; }
@@ -114,7 +116,8 @@ public sealed partial class BuildEngine
             Report = new()
             {
                 UsedOptimizedMount = s.UsedOptimizedMount, Execution = s.Execution, SetupMedia = s.StagingResult,
-                RedundantData = s.Cleanup, Features = s.Features.ToArray(), Capabilities = s.Capabilities.ToArray()
+                RedundantData = s.Cleanup, Features = s.Features.ToArray(), Capabilities = s.Capabilities.ToArray(),
+                TemplateArtifacts = s.TemplateArtifacts, TemplateManifestSha256 = s.TemplateManifestSha256
             },
             ActiveMilliseconds = s.TotalActive.TotalMilliseconds,
             Operations = s.Tracking.SnapshotCompleting("stage:Commit", "checkpoint:committed")
@@ -296,6 +299,12 @@ public sealed partial class BuildEngine
 
     private async Task CreateIsoAsync(BuildSession s, CancellationToken token)
     {
+        if (s.Recipe.TemplateProfile != TemplateProfile.None)
+        {
+            TemplateContractValidator.ValidateInitialAnswer(await File.ReadAllTextAsync(Path.Combine(s.Staging, "autounattend.xml"), token).ConfigureAwait(false));
+            await TemplatePayloadStager.ValidateMediaAsync(s.Staging, s.TemplateArtifacts,
+                s.TemplateManifestSha256 ?? throw new InvalidDataException("Template manifest identity is missing."), token).ConfigureAwait(false);
+        }
         s.Stage("Create ISO", "Creating a UEFI-bootable ISO using Microsoft's oscdimg.", token);
         if (File.Exists(s.TemporaryIso))
         {
@@ -405,6 +414,7 @@ public sealed partial class BuildEngine
             {
                 SchemaVersion = 1, CompletedUtc = DateTimeOffset.UtcNow, Image = s.Image, recipe.Flavor,
                 LegacyInstallerEnabled = SetupInstaller.RequiresLegacy(recipe),
+                recipe.TemplateProfile, TemplateArtifacts = s.TemplateArtifacts, TemplateManifestSha256 = s.TemplateManifestSha256,
                 recipe.SelectedOptions, recipe.ExpertActions, recipe.Compression, recipe.EnableNetFx3,
                 recipe.TurboMode, recipe.RemoveRedundantData, recipe.OmitNetFx3SetupPayload,
                 Execution = s.Execution, UsedOptimizedMount = s.UsedOptimizedMount, SetupMedia = s.StagingResult,

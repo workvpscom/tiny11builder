@@ -290,6 +290,8 @@ internal sealed class FakeRunner(int build, string architecture, List<string> ev
         if (args.Contains("/Unmount-Image"))
         {
             var directory = Value("/MountDir:");
+            var templatePayload = Path.Combine(directory, "ProgramData", "Tiny11Template");
+            if (Directory.Exists(templatePayload)) Directory.Delete(Path.Combine(directory, "ProgramData"), recursive: true);
             foreach (var relative in new[] { @"sources\setup.exe", @"Windows\System32\winpeshl.ini", @"Windows\System32\config\SYSTEM" })
                 if (File.Exists(Path.Combine(directory, relative))) File.Delete(Path.Combine(directory, relative));
             foreach (var relative in new[] { @"sources", @"Windows\System32\config", @"Windows\System32", "Windows" })

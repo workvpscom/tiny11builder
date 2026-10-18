@@ -116,6 +116,7 @@ public sealed partial class BuildEngine
 
     public async Task<BuildResult> BuildAsync(BuildRecipe recipe, IProgress<BuildProgress>? progress, CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(recipe);
         var elapsed = Stopwatch.StartNew();
         PathSafety.Validate(recipe);
         if (string.IsNullOrEmpty(recipe.OscdimgPath)) throw new FileNotFoundException("Windows ADK oscdimg.exe is required to create a bootable ISO.");
@@ -131,6 +132,8 @@ public sealed partial class BuildEngine
         var metadataDism = new DismClient(recipe.DismPath, runner);
         var image = await metadataDism.GetImageAsync(sourceWim, recipe.ImageIndex, token).ConfigureAwait(false);
         host.ValidateImage(recipe, image);
+        if (recipe.TemplateProfile != TemplateProfile.None && (image.Architecture != "x64" || !image.IsSupported))
+            throw new InvalidDataException("The Proxmox template profile requires a supported Windows 11 x64 client image.");
         var efiRelative = new[] { @"efi\microsoft\boot\efisys.bin", @"efi\microsoft\boot\efisys_noprompt.bin" }
             .FirstOrDefault(p => File.Exists(Path.Combine(media.RootPath, p))) ??
             throw new InvalidDataException("The source does not contain a supported UEFI boot image.");
@@ -202,6 +205,14 @@ public sealed partial class BuildEngine
             Stage("Copy media", "Copying setup media, excluding the original multi-edition installation image.");
             session.StagingResult = await MediaStager.CopyAsync(media.RootPath, staging, execution.CopyWorkers,
                 recipe.OmitNetFx3SetupPayload, Log, token).ConfigureAwait(false);
+            if (recipe.TemplateProfile != TemplateProfile.None)
+            {
+                Stage("Template payload", "Acquiring and verifying the pinned template payload.");
+                session.TemplateArtifacts = await new TemplatePayloadStager(runner).PrepareMediaAsync(
+                    recipe.WorkspacePath, job.Directory, staging, token).ConfigureAwait(false);
+                session.TemplateManifestSha256 = (await Digest.HashAsync(Path.Combine(staging, "tiny11-template", "guest-files.json"), null, token).ConfigureAwait(false)).Sha256;
+                await TemplatePayloadStager.ValidateMediaAsync(staging, session.TemplateArtifacts, session.TemplateManifestSha256, token).ConfigureAwait(false);
+            }
             Stage("Export edition", "Exporting only the selected edition into a writable WIM.");
             Log(execution.FastWorkingImage ?
                 "Turbo: using fast intermediate compression to accelerate commit. Final compression remains as selected." :
@@ -373,6 +384,13 @@ public sealed partial class BuildEngine
                     registry.Apply(mount, recipe, Log);
                     return Task.CompletedTask;
                 }).ConfigureAwait(false);
+            if (recipe.TemplateProfile != TemplateProfile.None)
+            {
+                Stage("Template guest", "Staging verified template bootstrap into the installation image.");
+                await TemplatePayloadStager.CopyIntoImageAsync(staging, mount, token).ConfigureAwait(false);
+                await dism.RunAsync(token, $"/Image:{mount}", "/Add-Driver",
+                    $"/Driver:{Path.Combine(staging, "tiny11-template", "drivers", "vioser.inf")}").ConfigureAwait(false);
+            }
             File.WriteAllText(Path.Combine(staging, "autounattend.xml"), UnattendBuilder.Create(image, recipe));
             if (recipe.SelectedOptions.Contains("cleanup") || recipe.Flavor == BuildFlavor.Core)
             {

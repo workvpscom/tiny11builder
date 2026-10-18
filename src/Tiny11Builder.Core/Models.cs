@@ -7,6 +7,7 @@ public enum Compression { Recovery, Maximum, Fast }
 public enum CleanupPreset { Balanced, Minimal, Original, Custom }
 public enum BuildFlavor { Regular, Core }
 public enum BuildMode { Tiny11, Tiny11Core, Custom }
+public enum TemplateProfile { None, ProxmoxCloudbaseInit }
 public enum OptionKind { App, Feature, Capability, Policy, File }
 public enum PolicyHive { Software, DefaultUser, System }
 public enum ImageItemKind { ProvisionedApp, SystemApp, Feature, Capability, Package, Service, ComponentPayload }
@@ -72,10 +73,11 @@ public sealed record BuildRecipe
     public bool TurboMode { get; init; }
     public bool RemoveRedundantData { get; init; }
     public bool OmitNetFx3SetupPayload { get; init; }
+    public TemplateProfile TemplateProfile { get; init; }
 
     public void ValidateOptions()
     {
-        if (SchemaVersion != 1 || !Enum.IsDefined(Compression) || !Enum.IsDefined(Flavor) ||
+        if (SchemaVersion != 1 || !Enum.IsDefined(Compression) || !Enum.IsDefined(Flavor) || !Enum.IsDefined(TemplateProfile) ||
             (Mode is { } mode && !Enum.IsDefined(mode)))
             throw new InvalidDataException("This recipe version or compression mode is not supported.");
         if (Flavor == BuildFlavor.Core && !CoreAcknowledged)
@@ -96,6 +98,11 @@ public sealed record BuildRecipe
         foreach (var id in SelectedOptions)
             if (!CleanupCatalog.Options.Any(o => o.Id == id))
                 throw new InvalidDataException($"Unknown cleanup option: {id}");
+        if (TemplateProfile != TemplateProfile.None &&
+            (CleanupCatalog.ModeForRecipe(this) != BuildMode.Tiny11Core || Flavor != BuildFlavor.Core ||
+             ExpertActions.Length > 0 ||
+             !SelectedOptions.ToHashSet(StringComparer.Ordinal).SetEquals(CleanupCatalog.ForMode(BuildMode.Tiny11Core))))
+            throw new InvalidDataException("The Proxmox template profile requires the fixed Tiny11 Core removal set.");
         if (Mode is BuildMode.Tiny11 or BuildMode.Tiny11Core &&
             (Flavor != (Mode == BuildMode.Tiny11Core ? BuildFlavor.Core : BuildFlavor.Regular) ||
              ExpertActions.Length > 0 ||

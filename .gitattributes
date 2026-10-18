@@ -12,3 +12,5 @@
 tiny11maker.ps1 -text
 tiny11Coremaker.ps1 -text
 autounattend.xml -text
+# Driver INF được pin theo SHA-256; giữ nguyên bytes từ upstream.
+src/Tiny11Builder.Core/Template/Drivers/vioser.inf -text -diff
