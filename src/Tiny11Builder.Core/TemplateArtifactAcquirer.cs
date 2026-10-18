@@ -2,13 +2,25 @@ using System.Security.Cryptography;
 
 namespace Tiny11Builder.Core;
 
-public sealed class TemplateArtifactAcquirer(HttpClient client)
+/// <summary>Acquires pinned installers without taking ownership of the caller's HTTP client.</summary>
+/// <param name="client">Caller-owned client with automatic redirects disabled.</param>
+/// <param name="downloadTimeout">Positive, finite per-download deadline covering redirects and body verification; defaults to ten minutes.</param>
+public sealed class TemplateArtifactAcquirer(HttpClient client, TimeSpan? downloadTimeout = null)
 {
+    private static readonly TimeSpan DefaultDownloadTimeout = TimeSpan.FromMinutes(10);
+    private readonly TimeSpan downloadTimeout = ValidateTimeout(downloadTimeout ?? DefaultDownloadTimeout);
+
+    private static TimeSpan ValidateTimeout(TimeSpan timeout) => timeout > TimeSpan.Zero && timeout.TotalMilliseconds <= uint.MaxValue - 1
+        ? timeout : throw new ArgumentOutOfRangeException(nameof(timeout));
+
     public const string QgaUrl = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-qemu-ga/qemu-ga-win-110.2.3-2.el10/qemu-ga-x86_64.msi";
     public const string QgaSha256 = "19DCF8ABC30F70C2EB6E87282601FD0476E4E0B19936F63D9C80BE30DB0796ED";
+    /// <summary>Creates a caller-owned client; redirects are validated by the acquirer, not followed automatically.</summary>
     public static HttpClient CreateClient() => new(new HttpClientHandler { AllowAutoRedirect = false })
     { Timeout = TimeSpan.FromMinutes(10) };
 
+    /// <summary>Returns hash-verified cache paths under the workspace; failed downloads leave no partial installer.</summary>
+    /// <remarks>The supplied client must disable automatic redirects to preserve the approved-host policy.</remarks>
     public async Task<(string Cloudbase, string Qga)> AcquireAsync(string workspace, CancellationToken token)
     {
         var cache = Path.Combine(PathSafety.Full(workspace), "downloads", "template-artifacts");
@@ -30,6 +42,9 @@ public sealed class TemplateArtifactAcquirer(HttpClient client)
             await VerifyAsync(path, hash, maximumBytes, token).ConfigureAwait(false);
             return path;
         }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(downloadTimeout);
+        token = deadline.Token;
         var uri = new Uri(url);
         HttpResponseMessage? response = null;
         try

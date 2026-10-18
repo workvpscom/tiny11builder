@@ -12,13 +12,24 @@ internal sealed record TemplateMediaManifest(int SchemaVersion, TemplateProfile 
     IReadOnlyList<TemplateArtifactReceipt> Artifacts, IReadOnlyDictionary<string, string> DriverHashes,
     string CloneOobePolicy = "OperatorApprovedSkipMachineAndUserOobeRequiresBuildSpecificValidation");
 
-public sealed class TemplatePayloadStager(IProcessRunner runner)
+/// <summary>Stages verified template payloads into an existing build job, never into a running guest.</summary>
+/// <param name="runner">Caller-owned runner; template verification children may be terminated on cancellation.</param>
+/// <param name="subprocessTimeout">Positive, finite per-child deadline; defaults to two minutes. Does not affect DISM.</param>
+public sealed class TemplatePayloadStager(IProcessRunner runner, TimeSpan? subprocessTimeout = null)
 {
+    private static readonly TimeSpan DefaultSubprocessTimeout = TimeSpan.FromMinutes(2);
+    private readonly TimeSpan subprocessTimeout = ValidateTimeout(subprocessTimeout ?? DefaultSubprocessTimeout);
+
+    private static TimeSpan ValidateTimeout(TimeSpan timeout) => timeout > TimeSpan.Zero && timeout.TotalMilliseconds <= uint.MaxValue - 1
+        ? timeout : throw new ArgumentOutOfRangeException(nameof(timeout));
+
     public const string CloudbaseVersion = "1.1.9";
     public const string CloudbaseSha256 = "FFBF80515A7311ED00800276A6AF7AAB23B41D7ACF13E79CE3D2D56844F638F7";
     public const string CloudbasePublisher = "Cloudbase Solutions Srl";
     public const string CloudbaseUrl = "https://github.com/cloudbase/cloudbase-init/releases/download/1.1.9/CloudbaseInitSetup_1_1_9_x64.msi";
 
+    /// <summary>Populates this job's media directory with verified installers, guest helpers, and integrity manifests.</summary>
+    /// <remarks>Requires an existing job.json and Windows trust verification. Partial job files are retained for diagnosis on failure.</remarks>
     public async Task<IReadOnlyList<TemplateArtifactReceipt>> PrepareMediaAsync(string workspace, string jobDirectory,
         string mediaDirectory, CancellationToken token)
     {
@@ -54,17 +65,7 @@ public sealed class TemplatePayloadStager(IProcessRunner runner)
         await WriteTextAsync("Template-State.ps1", TemplateGuestAssets.StateScript);
         await WriteTextAsync("preparation-profile.json", "{\"SchemaVersion\":1,\"Profile\":\"ProxmoxCloudbaseInit\",\"Lifecycle\":\"AuditUser\"}");
         await WriteTextAsync("template-unattend.xml", TemplateGuestAssets.FinalAnswerFile());
-        var transformScript = Path.Combine(jobDirectory, "create-transform.ps1");
-        await File.WriteAllTextAsync(transformScript, TemplateGuestAssets.TransformScript, new UTF8Encoding(true), token).ConfigureAwait(false);
-        var transformWork = Path.Combine(jobDirectory, "template-transform");
-        Directory.CreateDirectory(transformWork);
-        var preparedTransform = Path.Combine(transformWork, "CloudbaseDisabled.mst");
-        var transformResult = await runner.RunAsync(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe"),
-            ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", transformScript,
-                "-Source", Path.Combine(payload, "CloudbaseInitSetup_1_1_9_x64.msi"), "-Destination", preparedTransform],
-            null, token, finishOnCancellation: false).ConfigureAwait(false);
-        if (transformResult.ExitCode != 0) throw new InvalidDataException("Unable to prepare the scoped disabled-service MSI transform.");
-        File.Copy(preparedTransform, Path.Combine(payload, "CloudbaseDisabled.mst"), overwrite: false);
+        await CreateTransformAsync(jobDirectory, payload, token).ConfigureAwait(false);
         var drivers = Path.Combine(payload, "drivers");
         Directory.CreateDirectory(drivers);
         foreach (var name in new[] { "vioser.cat", "vioser.inf", "vioser.sys", "LICENSE.txt" })
@@ -86,6 +87,27 @@ public sealed class TemplatePayloadStager(IProcessRunner runner)
 
         Task WriteTextAsync(string name, string text) => File.WriteAllTextAsync(Path.Combine(payload, name), text,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: name.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase)), token);
+    }
+
+    internal async Task CreateTransformAsync(string jobDirectory, string payload, CancellationToken token)
+    {
+        var transformScript = Path.Combine(jobDirectory, "create-transform.ps1");
+        await File.WriteAllTextAsync(transformScript, TemplateGuestAssets.TransformScript, new UTF8Encoding(true), token).ConfigureAwait(false);
+        var transformWork = Path.Combine(jobDirectory, "template-transform");
+        Directory.CreateDirectory(transformWork);
+        var preparedTransform = Path.Combine(transformWork, "CloudbaseDisabled.mst");
+        var diagnosticPath = Path.Combine(jobDirectory, "template-transform.log");
+        using var diagnostic = new StreamWriter(diagnosticPath, append: false, new UTF8Encoding(false)) { AutoFlush = true };
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(subprocessTimeout);
+        var transformResult = await runner.RunAsync(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe"),
+            ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", transformScript,
+                "-Source", Path.Combine(payload, "CloudbaseInitSetup_1_1_9_x64.msi"), "-Destination", preparedTransform],
+            line => { lock (diagnostic) diagnostic.WriteLine(line); }, deadline.Token, finishOnCancellation: false).ConfigureAwait(false);
+        if (transformResult.ExitCode != 0)
+            throw new InvalidDataException($"MSI transform failed with exit code {transformResult.ExitCode}. Diagnostic: {diagnosticPath}");
+        deadline.Token.ThrowIfCancellationRequested();
+        File.Copy(preparedTransform, Path.Combine(payload, "CloudbaseDisabled.mst"), overwrite: false);
     }
 
     internal static void ValidateConfigurationEncoding(byte[] bytes)
@@ -164,9 +186,11 @@ public sealed class TemplatePayloadStager(IProcessRunner runner)
         var script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $s=Get-AuthenticodeSignature -LiteralPath '" + escaped +
             "'; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne 'FAC666005546D6BE881A31C1267717879401A950'){exit 1}; exit 0";
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(subprocessTimeout);
         var result = await runner.RunAsync(executable,
             ["-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(script))],
-            null, token, finishOnCancellation: false).ConfigureAwait(false);
+            null, deadline.Token, finishOnCancellation: false).ConfigureAwait(false);
         if (result.ExitCode != 0) throw new InvalidDataException("Template serial driver catalog is not trusted.");
     }
 
@@ -195,6 +219,8 @@ public sealed class TemplatePayloadStager(IProcessRunner runner)
         }
     }
 
+    /// <summary>Verifies the pinned MSI and Windows publisher before publishing a job-local installer copy.</summary>
+    /// <remarks>Requires a tiny11-{GUID:N} job directory containing job.json. Existing payloads are never overwritten.</remarks>
     public async Task<TemplateArtifactReceipt> StageCloudbaseAsync(string source, string jobDirectory, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -226,8 +252,10 @@ public sealed class TemplatePayloadStager(IProcessRunner runner)
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         var powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
             @"WindowsPowerShell\v1.0\powershell.exe");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(subprocessTimeout);
         var result = await runner.RunAsync(powershell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-            null, token, finishOnCancellation: false).ConfigureAwait(false);
+            null, deadline.Token, finishOnCancellation: false).ConfigureAwait(false);
         if (result.ExitCode != 0)
             throw new InvalidDataException("Cloudbase-Init installer signature or publisher is not trusted.");
         using var signature = JsonDocument.Parse(result.StandardOutput);

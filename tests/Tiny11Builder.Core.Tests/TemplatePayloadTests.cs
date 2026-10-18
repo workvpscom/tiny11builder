@@ -39,11 +39,10 @@ public sealed class TemplatePayloadTests
     }
 
     // TM-04 / TM-T05: The opt-in Windows test uses the actual publisher artifact.
-    [Fact]
+    [TemplateArtifactFact("TINY11_TEST_CLOUDBASE_MSI")]
     public async Task Approved_cloudbase_installer_stages_with_signature_receipt_when_configured()
     {
-        var source = Environment.GetEnvironmentVariable("TINY11_TEST_CLOUDBASE_MSI");
-        if (string.IsNullOrEmpty(source)) return;
+        var source = TemplateArtifactFactAttribute.Require("TINY11_TEST_CLOUDBASE_MSI");
         Assert.True(OperatingSystem.IsWindows());
         var root = Path.Combine(Path.GetTempPath(), "tiny11-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);

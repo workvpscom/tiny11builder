@@ -60,6 +60,8 @@ In Cloud-Init, set a unique Administrator password and the required IPv4, gatewa
 
 ## Verification and limitations
 
+The standards follow-up adds download/subprocess deadlines, transform diagnostics, explicit artifact-test skips, and API contract documentation. A temporary SDK 10 harness passed 7 tests and skipped 5 optional artifact tests; its required-artifact lane failed all 5 missing-prerequisite tests as expected. Python tests passed 32/32, and a read-only review found no further issues in this fix scope. Canonical SDK 8, Windows trust/process execution, and guest E2E validation have not been rerun. The preparation helper has changed: the existing v20 ISO/template and historical receipts do not certify these new source bytes.
+
 | Check | Result |
 |---|---|
 | Source/tests against v20 snapshot | 95 files matched SHA-256 before the English-only follow-up |

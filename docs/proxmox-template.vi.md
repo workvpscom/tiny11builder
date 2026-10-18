@@ -60,6 +60,8 @@ Trong GUI Cloud-Init đặt Administrator password riêng, IPv4/gateway/DNS; reg
 
 ## Evidence và giới hạn
 
+Follow-up Standards bổ sung deadline cho download/subprocess, diagnostics transform, skip rõ cho artifact tests và API docs. Harness SDK10 tạm đạt 7 tests, skip 5 optional artifact tests; lane bắt buộc thiếu prerequisites fail đúng cả 5 tests. Python đạt 32/32; read-only review không phát hiện thêm issue trong scope fix. Chưa chạy lại SDK8 chuẩn, Windows trust/process execution hoặc guest E2E. Preparation helper đã đổi: ISO/template v20 và receipts lịch sử không chứng nhận bytes source mới này.
+
 | Hạng mục | Kết quả |
 |---|---|
 | Source/tests so với snapshot v20 | 95 file khớp SHA-256 trước follow-up chỉ dịch ngôn ngữ |

@@ -9,11 +9,10 @@ namespace Tiny11Builder.Core.Tests;
 public sealed class TemplatePipelineTests
 {
     // TM-07: Use actual pinned artifacts and the real verifier with a fake DISM boundary.
-    [Fact]
+    [TemplateArtifactFact("TINY11_TEST_TEMPLATE_CACHE")]
     public async Task Template_checkpoint_preserves_payload_and_resumes_without_cache_when_configured()
     {
-        var cache = Environment.GetEnvironmentVariable("TINY11_TEST_TEMPLATE_CACHE");
-        if (string.IsNullOrEmpty(cache)) return;
+        var cache = TemplateArtifactFactAttribute.Require("TINY11_TEST_TEMPLATE_CACHE");
         using var fixture = new BuildFixture(build: 26300);
         var recipe = Profile(fixture);
         SeedCache(cache, recipe.WorkspacePath);
@@ -57,11 +56,10 @@ public sealed class TemplatePipelineTests
     }
 
     // TM-07: Reject manifest/payload tampering before mutation.
-    [Fact]
+    [TemplateArtifactFact("TINY11_TEST_TEMPLATE_CACHE")]
     public async Task Changed_template_payload_is_refused_on_resume_when_configured()
     {
-        var cache = Environment.GetEnvironmentVariable("TINY11_TEST_TEMPLATE_CACHE");
-        if (string.IsNullOrEmpty(cache)) return;
+        var cache = TemplateArtifactFactAttribute.Require("TINY11_TEST_TEMPLATE_CACHE");
         using var fixture = new BuildFixture(build: 26300);
         var recipe = Profile(fixture);
         SeedCache(cache, recipe.WorkspacePath);
@@ -81,11 +79,10 @@ public sealed class TemplatePipelineTests
     }
 
     // TM-04 / TM-T11: Semantic policy prevents publication even when media inventory is valid.
-    [Fact]
+    [TemplateArtifactFact("TINY11_TEST_TEMPLATE_CACHE")]
     public async Task Invalid_initial_answer_is_refused_before_iso_creation_when_configured()
     {
-        var cache = Environment.GetEnvironmentVariable("TINY11_TEST_TEMPLATE_CACHE");
-        if (string.IsNullOrEmpty(cache)) return;
+        var cache = TemplateArtifactFactAttribute.Require("TINY11_TEST_TEMPLATE_CACHE");
         using var fixture = new BuildFixture(build: 26300);
         var recipe = Profile(fixture);
         SeedCache(cache, recipe.WorkspacePath);
@@ -109,11 +106,10 @@ public sealed class TemplatePipelineTests
     }
 
     // TM-04 / TM-T13: A valid manifest must not hide invalid encoding from the actual parser.
-    [Fact]
+    [TemplateArtifactFact("TINY11_TEST_TEMPLATE_CACHE")]
     public async Task Configuration_bom_is_refused_even_with_updated_manifest_when_configured()
     {
-        var cache = Environment.GetEnvironmentVariable("TINY11_TEST_TEMPLATE_CACHE");
-        if (string.IsNullOrEmpty(cache)) return;
+        var cache = TemplateArtifactFactAttribute.Require("TINY11_TEST_TEMPLATE_CACHE");
         using var fixture = new BuildFixture(build: 26300);
         var recipe = Profile(fixture);
         SeedCache(cache, recipe.WorkspacePath);

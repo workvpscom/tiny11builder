@@ -123,7 +123,13 @@ try {
     $plugin = Join-Path $pythonRoot 'Lib\site-packages\tiny11_cloudbase.py'
     Copy-Item (Join-Path $root 'tiny11_cloudbase.py') $plugin -Force
     if ((Get-FileHash $plugin).Hash -ne (Get-FileHash (Join-Path $root 'tiny11_cloudbase.py')).Hash) { throw 'Installed reconciliation plugin integrity failed' }
-    $import = Start-Process (Join-Path $pythonRoot 'python.exe') -ArgumentList '-c "import tiny11_cloudbase; assert tiny11_cloudbase.ProxmoxReconcilePlugin"' -Wait -PassThru -NoNewWindow
+    $stage = 'Import reconciliation plugin'
+    $import = Start-Process (Join-Path $pythonRoot 'python.exe') -ArgumentList '-c "import tiny11_cloudbase; assert tiny11_cloudbase.ProxmoxReconcilePlugin"' -PassThru -NoNewWindow
+    $null = $import.Handle
+    if (-not $import.WaitForExit(60000)) {
+        $import.Kill()
+        throw 'Cloudbase reconciliation plugin import timed out after 60 seconds'
+    }
     if ($import.ExitCode -ne 0) { throw 'Cloudbase reconciliation plugin import failed' }
     if (Test-Path (Join-Path $root 'day2-state')) { throw 'Template has consumed clone reconciliation state' }
     Set-Service QEMU-GA -StartupType Automatic
