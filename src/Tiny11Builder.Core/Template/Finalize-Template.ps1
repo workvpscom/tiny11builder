@@ -29,6 +29,9 @@ try {
     $contextValidated = $true
     if ((Get-Service QEMU-GA).Status -ne 'Running') { throw 'QGA not running' }
     if (-not (Get-TemplateSerialDriverState).Healthy) { throw 'Serial driver identity or health check failed' }
+    $storage = Get-TemplateScsiBootDriverState
+    $storage | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'scsi-boot-driver-observation.json') -Encoding UTF8
+    if (-not $storage.Healthy) { throw 'SCSI boot driver identity or health check failed' }
     if ((Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
         (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
         $null -ne (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations) {

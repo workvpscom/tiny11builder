@@ -33,6 +33,9 @@ try {
     . (Join-Path $root 'Template-State.ps1')
     Assert-TemplatePreparationContext -Context $context
     $contextValidated = $true
+    $storage = Get-TemplateScsiBootDriverState
+    $storage | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'scsi-boot-driver-observation.json') -Encoding UTF8
+    if (-not $storage.Healthy) { throw 'SCSI boot driver identity or health check failed' }
     # Quarantine only after validating launcher, payload, and identity.
     $existingCloudbase = Get-Service cloudbase-init -ErrorAction SilentlyContinue
     if ($null -ne $existingCloudbase) {
@@ -54,8 +57,10 @@ try {
         & (Join-Path $root 'Configure-GuestPolicy.ps1') -VerifyOnly
         exit 0
     }
-    $catalog = Get-AuthenticodeSignature -LiteralPath (Join-Path $root 'drivers\vioser.cat')
-    if ($catalog.Status -ne 'Valid' -or $catalog.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation(?:,|$)') { throw 'Serial driver catalog is not trusted' }
+    foreach ($name in @('vioser.cat', 'vioscsi.cat')) {
+        $catalog = Get-AuthenticodeSignature -LiteralPath (Join-Path $root ('drivers\' + $name))
+        if ($catalog.Status -ne 'Valid' -or $catalog.SignerCertificate.Thumbprint -ne 'FAC666005546D6BE881A31C1267717879401A950') { throw "Driver catalog is not trusted: $name" }
+    }
     $cloudbase = Join-Path $root 'CloudbaseInitSetup_1_1_9_x64.msi'
     $signature = Get-AuthenticodeSignature -LiteralPath $cloudbase
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Cloudbase Solutions Srl(?:,|$)') { throw 'Cloudbase signature is not trusted' }

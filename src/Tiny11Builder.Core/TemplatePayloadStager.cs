@@ -68,7 +68,7 @@ public sealed class TemplatePayloadStager(IProcessRunner runner, TimeSpan? subpr
         await CreateTransformAsync(jobDirectory, payload, token).ConfigureAwait(false);
         var drivers = Path.Combine(payload, "drivers");
         Directory.CreateDirectory(drivers);
-        foreach (var name in new[] { "vioser.cat", "vioser.inf", "vioser.sys", "LICENSE.txt" })
+        foreach (var name in new[] { "vioser.cat", "vioser.inf", "vioser.sys", "LICENSE.txt", "vioscsi.cat", "vioscsi.inf", "vioscsi.sys", "vioscsi-LICENSE.txt" })
         {
             var bytes = TemplateGuestAssets.Driver(name);
             if (DriverHashes.TryGetValue(name, out var expected) && Digest.HashBytes(bytes) != expected)
@@ -125,7 +125,10 @@ public sealed class TemplatePayloadStager(IProcessRunner runner, TimeSpan? subpr
     {
         ["vioser.cat"] = "1E93A77AA320F515E6998DA233FA6F1B0E1DA9409EB7AACEDCFD4D21DF255E4D",
         ["vioser.inf"] = "4A8FCFDEEDBF05BF0B02535ACE5156D5DB5F1C229D30532F88AE477ADF82BEED",
-        ["vioser.sys"] = "B6767019C660903B59A3BB8396C40EDA2DE3CDA51CCC121B229050AE28B619FF"
+        ["vioser.sys"] = "B6767019C660903B59A3BB8396C40EDA2DE3CDA51CCC121B229050AE28B619FF",
+        ["vioscsi.cat"] = "F484461B7202A840D6F70ABC2EDFD82A01DD44349D234FAED9166D561D199B6A",
+        ["vioscsi.inf"] = "E49A966F7313DA4F6130DB00D84B57A167ADA0DE3D877C7CC584A7AED99C5BA2",
+        ["vioscsi.sys"] = "BE1FD2D12FA178D44CCC40548CC160D695A356566414E88976FC33F9F6C5AFA3"
     };
 
     internal static async Task ValidateMediaAsync(string media, IReadOnlyList<TemplateArtifactReceipt> receipts,
@@ -140,7 +143,8 @@ public sealed class TemplatePayloadStager(IProcessRunner runner, TimeSpan? subpr
             ?? throw new InvalidDataException("Template guest manifest is empty.");
         string[] required = ["CloudbaseInitSetup_1_1_9_x64.msi", "qemu-ga-x86_64.msi", "manifest.json",
             "cloudbase-init.conf", "cloudbase-init-unattend.conf", "Prepare-Template.ps1", "Finalize-Template.ps1", "Template-State.ps1",
-            "Initialize-Clone.ps1", "tiny11_cloudbase.py", "Configure-GuestPolicy.ps1", "template-unattend.xml", "preparation-profile.json", "CloudbaseDisabled.mst", "drivers\\vioser.cat", "drivers\\vioser.inf", "drivers\\vioser.sys", "drivers\\LICENSE.txt"];
+            "Initialize-Clone.ps1", "tiny11_cloudbase.py", "Configure-GuestPolicy.ps1", "template-unattend.xml", "preparation-profile.json", "CloudbaseDisabled.mst", "drivers\\vioser.cat", "drivers\\vioser.inf", "drivers\\vioser.sys", "drivers\\LICENSE.txt",
+            "drivers\\vioscsi.cat", "drivers\\vioscsi.inf", "drivers\\vioscsi.sys", "drivers\\vioscsi-LICENSE.txt"];
         if (files.Length != required.Length || !files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal).SetEquals(required))
             throw new InvalidDataException("Template guest manifest inventory mismatch. Missing: " +
                 string.Join(", ", required.Except(files.Select(f => f.Path), StringComparer.Ordinal)) + "; Unexpected: " +
@@ -182,16 +186,17 @@ public sealed class TemplatePayloadStager(IProcessRunner runner, TimeSpan? subpr
     private async Task VerifyDriverCatalogAsync(string drivers, CancellationToken token)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Driver verification requires Windows.");
-        var escaped = Path.Combine(drivers, "vioser.cat").Replace("'", "''", StringComparison.Ordinal);
-        var script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; $s=Get-AuthenticodeSignature -LiteralPath '" + escaped +
-            "'; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne 'FAC666005546D6BE881A31C1267717879401A950'){exit 1}; exit 0";
+        var catalogs = string.Join(",", new[] { "vioser.cat", "vioscsi.cat" }
+            .Select(name => "'" + Path.Combine(drivers, name).Replace("'", "''", StringComparison.Ordinal) + "'"));
+        var script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; foreach($path in @(" + catalogs +
+            ")){$s=Get-AuthenticodeSignature -LiteralPath $path; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne 'FAC666005546D6BE881A31C1267717879401A950'){exit 1}}; exit 0";
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(subprocessTimeout);
         var result = await runner.RunAsync(executable,
             ["-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(script))],
             null, deadline.Token, finishOnCancellation: false).ConfigureAwait(false);
-        if (result.ExitCode != 0) throw new InvalidDataException("Template serial driver catalog is not trusted.");
+        if (result.ExitCode != 0) throw new InvalidDataException("Template serial or SCSI driver catalog is not trusted.");
     }
 
     internal static async Task CopyIntoImageAsync(string media, string mount, CancellationToken token)

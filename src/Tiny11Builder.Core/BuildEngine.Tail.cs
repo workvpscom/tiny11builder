@@ -160,7 +160,8 @@ public sealed partial class BuildEngine
 
     private async Task ApplySetupImageAsync(BuildSession s, CancellationToken token)
     {
-        s.Stage("Setup image", SetupInstaller.RequiresLegacy(s.Recipe) ?
+        var template = s.Recipe.TemplateProfile == TemplateProfile.ProxmoxCloudbaseInit;
+        s.Stage("Setup image", template ? "Adding boot-storage support to Windows PE and Setup." : SetupInstaller.RequiresLegacy(s.Recipe) ?
             "Enabling the legacy Windows installer required by component-store removals." :
             "Applying hardware-requirement settings to the Windows Setup boot image.", token);
         var bootWim = Path.Combine(s.Staging, @"sources\boot.wim");
@@ -176,15 +177,27 @@ public sealed partial class BuildEngine
             bootImages.FirstOrDefault(i => i.Index == 2) ??
             throw new InvalidDataException("Cannot identify Windows Setup in boot.wim.");
         s.Dism.DisableOptimizedMount();
-        s.Mounted = true;
-        await s.Dism.RunAsync(token, "/Mount-Image", $"/ImageFile:{privateBoot}", $"/Index:{setup.Index}",
-            $"/MountDir:{s.Mount}").ConfigureAwait(false);
-        if (s.Recipe.SelectedOptions.Contains("hardware-bypass"))
-            registry.ApplySetupBypass(s.Mount, s.Log);
-        if (SetupInstaller.RequiresLegacy(s.Recipe))
-            SetupInstaller.ApplyLegacy(s.Mount, s.Log);
-        await s.Dism.RunAsync(token, "/Unmount-Image", $"/MountDir:{s.Mount}", "/Commit").ConfigureAwait(false);
-        s.Mounted = false;
+        // Each bootable PE image needs storage support; Setup-only policy stays on the identified Setup index.
+        // All commits remain private until every index succeeds, so failure/resume repeats the whole transaction.
+        var targets = template ? bootImages : new[] { setup }.AsEnumerable();
+        foreach (var image in targets)
+        {
+            s.Mounted = true;
+            await s.Dism.RunAsync(token, "/Mount-Image", $"/ImageFile:{privateBoot}", $"/Index:{image.Index}",
+                $"/MountDir:{s.Mount}").ConfigureAwait(false);
+            if (template)
+                await s.Dism.RunAsync(token, "/Add-Driver", $"/Image:{s.Mount}",
+                    $"/Driver:{Path.Combine(s.Staging, "tiny11-template", "drivers", "vioscsi.inf")}").ConfigureAwait(false);
+            if (image.Index == setup.Index)
+            {
+                if (s.Recipe.SelectedOptions.Contains("hardware-bypass"))
+                    registry.ApplySetupBypass(s.Mount, s.Log);
+                if (SetupInstaller.RequiresLegacy(s.Recipe))
+                    SetupInstaller.ApplyLegacy(s.Mount, s.Log);
+            }
+            await s.Dism.RunAsync(token, "/Unmount-Image", $"/MountDir:{s.Mount}", "/Commit").ConfigureAwait(false);
+            s.Mounted = false;
+        }
         Digest.RequireCompleteWim(privateBoot, "The edited Windows Setup image");
         // The edit has committed; validating and placing it is not interruptible, so finished work is not discarded.
         var edited = await s.Dism.GetImagesAsync(privateBoot, CancellationToken.None).ConfigureAwait(false);

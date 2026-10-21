@@ -1,87 +1,61 @@
-# ISO tự đủ và Proxmox VM template v20
+# Backup VM Windows tự đủ cho Proxmox
 
 [English (default)](proxmox-template.md) | Tiếng Việt
 
-## Phạm vi bàn giao
+## Phạm vi
 
-Source hiện tại build ISO tích hợp payload; không cần patch Windows sau cài. Proxmox dùng chức năng chuẩn, không mod node, không host Apply script hoặc `cicustom`.
+Profile opt-in `ProxmoxCloudbaseInit` build ISO chứa Cloudbase-Init, QGA, serial/storage drivers đã pin và tự động Audit preparation/Sysprep shutdown. Builds thường giữ nguyên behavior. Không patch sau cài, mod Proxmox, host Apply script hoặc `cicustom`.
 
-- Tiny11 Core / Windows 11 Pro x64, build26300.9457.
-- Cloudbase-Init1.1.9, QGA110.2.3, ConfigDrive2.
-- Embedded reconciliation plugin xử lý hostname/password/IPv4 first boot và day-2; native ExtendVolumes mở rộng C:.
-- RDP bật sau credential reconciliation; NLA và Firewall giữ bật, remote scope Any theo approval.
-- Không cấu hình host automation ép giờ; administrator vẫn chỉnh thủ công. Không block QGA RPC hoặc đổi RTC/NTP.
+Archive bàn giao là **backup VM thường**, không phải Proxmox template. Restore rồi Start trực tiếp; không convert template hoặc clone trong workflow này.
 
-> Core loại bỏ Windows Update, Defender và nhiều component không thể phục hồi. Chỉ dùng khi chấp nhận đặc tính Core; không coi đây là Windows đầy đủ. License/activation do operator quản lý.
+> Tiny11 Core loại bỏ Windows Update, Defender và các component không thể phục hồi. License/activation do operator quản lý.
 
-## Build và cài từ ISO
+## Build và chuẩn bị VM sạch
 
-1. Build ứng dụng trên Windows theo [usage](usage.md), chọn Tiny11 Core, import recipe JSON có `"TemplateProfile": "ProxmoxCloudbaseInit"`. Profile mặc định off; không tự bật cho builds thường.
-2. Dùng Windows11Pro x64 media phù hợp. Builder download/verify pinned installers và bundle helpers/config/manifest vào ISO; không cài agents trên build host.
-3. Tạo VM UEFI/OVMF + TPM2.0, SATA OS disk20GiB, E1000 NIC; CPU2/RAM4GiB đã được nghiệm thu. Boot ISO, chọn Pro, xử lý license/product key hợp lệ và chọn disk cài. Không có unattended disk wipe.
-4. Sau Setup, Audit preparation tự cài agents, verify payload/health, chạy Sysprep generalize và shutdown. Không boot lại VM nguồn để thử.
-5. Tháo installation ISO; giữ boot OS disk. Thêm Cloud-Init drive chuẩn, chọn ConfigDrive2, convert thành template. Không cần chạy patch script.
+1. Theo [usage](usage.md), chọn fixed Tiny11 Core và import recipe có `"TemplateProfile": "ProxmoxCloudbaseInit"`. Dùng Windows11Pro x64 media phù hợp.
+2. Tạo VM OVMF/UEFI + TPM2.0, `scsihw: virtio-scsi-single`, OS disk **20GiB `scsi0`**, E1000 NIC. Bật native **QEMU Guest Agent** trước cài. Đã nghiệm thu2CPU/4GiB RAM.
+3. Boot ISO mới, xử lý license/product-key prompts và chọn disk. Setup có storage driver sẵn, không Load driver thủ công hoặc unattended disk wipe.
+4. Để Audit tự cài/kiểm agents, Sysprep và shutdown. Không boot nguồn sealed để thử.
+5. Tháo ISO cài, đặt boot order `scsi0`, thêm Cloud-Init drive chuẩn với ConfigDrive2. Không bake password/IP deployment vào nguồn. **Không chạy `qm template`.**
+6. Backup VM stopped bằng native `vzdump`/zstd. Kiểm `/etc/vzdump.conf` và hooks trước: hook có thể upload/move archive hoặc chạy retention. Không cài hook lab lên server khác.
 
-Không coi ISO là template: ISO là media cài; template là VM đã chuẩn bị và shutdown.
+Driver được pin và inject offline vào installation Windows và mọi boot image. Xem [provenance driver](virtio-scsi-driver.vi.md).
 
-## Restore archive trên server khác
+## Restore và chạy trực tiếp
 
-Archive đã nghiệm thu: `vzdump-qemu-windows-11-tiny.vma.zst` (4.141.754.422 bytes).
+Archive: `vzdump-qemu-windows-11-tiny.vma.zst`, **3.836.770.028 bytes**.
 
 ```text
-SHA-256: 04c325914c3c2a3e30e1828c1d7e6b61e428694b270d929a9c9e1efbde85cc7f
+SHA-256: c80db4f5b2e63afef97d2b766974af3590e30fdbc34ff55e30f2b69fa0f009c5
 ```
-
-Copy archive sang storage backup server đích. Kiểm checksum trước restore. Chọn VMID trống và storage có đủ chỗ:
 
 ```bash
-sha256sum /path/template.vma.zst
-qmrestore /path/template.vma.zst NEW_TEMPLATE_ID --storage TARGET_STORAGE --unique 1
-qm config NEW_TEMPLATE_ID
+sha256sum /path/vzdump-qemu-windows-11-tiny.vma.zst
+qmrestore /path/vzdump-qemu-windows-11-tiny.vma.zst NEW_VM_ID --storage TARGET_STORAGE --unique 1
+qm config NEW_VM_ID
 ```
 
-Kiểm `template: 1`, disk20GiB, EFI/TPM và Cloud-Init drive. Nếu phiên bản restore không giữ template flag, VM phải stopped rồi `qm template NEW_TEMPLATE_ID`.
+Chọn VMID trống. Kiểm không bật template flag, disk20GiB `scsi0`, `virtio-scsi-single`, EFI/TPM, Cloud-Init drive và boot order `scsi0`. Map storage/bridge theo server đích. Cấu hình đã nghiệm thu dùng Q35 9.0/CPU `host`; server đích cần hỗ trợ machine/CPU đã chọn. Đây là native configuration, không patch node.
 
-Map bridge theo server đích qua GUI Hardware → Network Device. CPU đang `host`; có thể chọn CPU model phù hợp môi trường bằng GUI trước clone. Q35 machine version9.0 cần QEMU hỗ trợ; chỉ đổi compatibility model sau kiểm tương thích. Storage/bridge/CPU mapping là cấu hình native, không patch Proxmox.
-
-Không boot template. Full clone sang VMID trống:
-
-```bash
-qm clone NEW_TEMPLATE_ID NEW_VM_ID --full 1 --name YOUR_HOSTNAME
-```
-
-Trong GUI Cloud-Init đặt Administrator password riêng, IPv4/gateway/DNS; regenerate image trước Start. Không dùng password mẫu hoặc credentials lab. ConfigDrive2 do Proxmox tự tạo; không cần custom snippets. Lần boot đầu có thể mất vài phút; hostname có thể cần reboot tự động.
+Trước Start đầu tiên, đặt password Administrator riêng, hostname, IPv4/gateway/DNS qua Cloud-Init và regenerate image. Start bản restore trực tiếp. Boot đầu có thể mất vài phút và reboot để áp dụng hostname; không cần clone.
 
 ## Day-2 và tăng disk
 
-- Đổi hostname/password/IP qua GUI/API, regenerate Cloud-Init image, controlled reboot VM. Kiểm actual Windows config và đăng nhập mới.
-- Không đổi metadata thì plugin không overwrite thay đổi trực tiếp trong Windows. Không reset plugin cache/state để ép chạy.
-- Tăng virtual OS disk qua Hardware → Resize disk; reboot để native ExtendVolumes mở rộng C:. Không shrink. Nguồn/template giữ20GiB.
+Đổi hostname/password/static IPv4 qua GUI/API, regenerate ConfigDrive2 và controlled reboot. Kiểm actual Windows config/authentication. Embedded Cloudbase reconciliation plugin quản lý các fields này; metadata không đổi giữ direct Windows edits. Chưa hỗ trợ static→DHCP.
+
+Tăng disk qua Hardware → Resize disk, rồi reboot để native ExtendVolumes mở rộng C:. Không shrink; giữ nguồn sạch20GiB.
+
+RDP bật sau credential reconciliation, NLA/Firewall bật và inbound scope Any đã được duyệt. Không cấu hình host automation ép giờ; administrator vẫn có quyền chỉnh. Profile không đổi RTC/NTP cho mục đích này.
 
 ## Evidence và giới hạn
 
-Follow-up Standards bổ sung deadline cho download/subprocess, diagnostics transform, skip rõ cho artifact tests và API docs. Harness SDK10 tạm đạt 7 tests, skip 5 optional artifact tests; lane bắt buộc thiếu prerequisites fail đúng cả 5 tests. Python đạt 32/32; read-only review không phát hiện thêm issue trong scope fix. Chưa chạy lại SDK8 chuẩn, Windows trust/process execution hoặc guest E2E. Preparation helper đã đổi: ISO/template v20 và receipts lịch sử không chứng nhận bytes source mới này.
+- Windows SDK8.0.426: **518/518 tests PASS, zero skip**, gồm real DISM commit/reopen boot images; publish win-x64 và PowerShell5.1 parser PASS.
+- Build ISO: runner/wrapper exit0,32phút17giây. Size4.864.966.656 bytes; SHA-256 `DC0A27E2751E79D8B00A85A756C6B0706A301EF9E50D2EADEAE9A0706543D768`.
+- Independent inspection kiểm payload22files, manifests/pins, không consumed runtime state; vioscsi boot-critical trong install.wim index1 và boot.wim indexes1/2.
+- Clean install thấy diskSCSI20GiB không load driver thủ công, boot health đạt, tự preparation/Sysprep/shutdown. Offline success tag/state sạch được kiểm; disk hash nguồn không đổi sau backup.
+- Native restore VM thường/Start hoàn tất provisioning không phím khoảng197giây. Hostname/IP/routes/DNS, SID-500 enabled, đúng/sai credential, SCSI boot Healthy và certificate-pinned RDP login/reconnect đều được kiểm. Remote archive SHA-256 khớp local sau upload.
+- V20 lịch sử đã kiểm password/hostname/static-IP A→B→A, disk growth/marker và bounded CPU/RAM/RDP. Không lặp toàn bộ trên v21; không gọi SATA evidence là SCSI stress mới.
 
-| Hạng mục | Kết quả |
-|---|---|
-| Source/tests so với snapshot v20 | 95 file khớp SHA-256 trước follow-up chỉ dịch ngôn ngữ |
-| Windows suite / publish / parser | 483/483, publish và parser PASS |
-| Python reconciliation tests | 32/32 PASS |
-| Clean ISO install → Audit → Sysprep shutdown | PASS; không patch guest |
-| Hai clone / SID-500 / password isolation / day-2 A→B→A | PASS |
-| Bounded CPU/RAM/RDP reliability | PASS qua hai run, không một run12phút |
-| Native stopped-source backup → restore9104 | PASS, template/EFI/TPM/20GiB giữ |
-| Clone từ restore | Password A→B→A, hostname/IP change, resize20→36GiB và RDP reconnect PASS |
-| VSS | Writers/provider readiness PASS; chưa live-backup consistency test |
-| Gateway/DNS-only alternate-endpoint | DEFERRED theo user |
-| Nhiều server thực địa | Chưa có server thứ hai; native restore đã kiểm trên node hiện tại |
+Chưa field-test server thứ hai hoặc live-backup consistency. Archive nguồn stopped; VSS readiness không chứng nhận live backup. Gateway/DNS-only alternate endpoints vẫn deferred. Sysprep BCD/WaaSMedic diagnostics giữ nguyên dù success/shutdown, không gọi logs error-free. Buildhost QGA hangs mới recovery, chưa chứng minh sửa root cause. Lỗi harness restore được giữ riêng với evidence guest acceptance.
 
-V20 build runner không capture được exit code; không báo exit0. Output độc lập đã inspect PASS, source state sạch và hash kiểm tại node. Có Sysprep BCD/WaaSMedic errors trong diagnostics dù success tag/shutdown và clone tests đạt; không gọi logs error-free.
-
-Một restored-clone boot trước hiện menu hai Windows entries và cần Enter một lần; nguyên nhân observation đó chưa xác định. Đã recreate fresh clone từ restored template, đặt metadata trước Start và kiểm first boot không phím: Applied/login-ready sau303giây, đúng hostname/IP/password. Các controlled reboots và cold boot cũng tự hoàn tất. Không patch BCD; default current Windows, timeout30s.
-
-Artifact pins và driver hashes nằm trong `C:\ProgramData\Tiny11Template\manifest.json`; helper inventory trong `guest-files.json` của payload/ISO. `report.json` trong working directory của mỗi build ghi Core compatibility preservation thực tế; source `TemplateArtifactAcquirer.cs` và `TemplatePayloadStager.cs` giữ pins đã kiểm. Không dùng danh sách preservation suy đoán thay report.
-
-Trước backup, kiểm `/etc/vzdump.conf` và hook hiện có để tránh side effect ngoài dự kiến. Trong lab, global hook đã upload/move archive và chạy retention; archive được copy lại và verify trước restore. Template không phụ thuộc hook này.
-
-ISO v20: `tiny11-core-proxmox-test-v20.iso`, 4.855.713.792 bytes, SHA-256 `A0BEEC347242D3D339A6CA2B1EA4EB884AB7950F8CD0A4EC779665C5289155F3`.
+Pins/licenses nằm trong `manifest.json` và `guest-files.json`; `report.json` ghi compatibility preservation thực tế. Patch không chứa credentials/private lab captures.

@@ -64,6 +64,41 @@ function Initialize-TemplateSerialDriver {
     return [pscustomobject]@{State='InstallRequested';ExitCode=$code;RebootRequired=($outstanding -or $code -eq 3010);Observation=$after}
 }
 
+# Follow the system volume's disk ancestry: unrelated VirtIO controllers must not certify a SATA boot disk.
+function Get-TemplateScsiBootDriverState {
+    $partition = @(Get-Partition -DriveLetter $env:SystemDrive.TrimEnd(':') -ErrorAction Stop)
+    if ($partition.Count -ne 1) { throw 'Cannot identify the system volume partition' }
+    $disks = @(Get-CimInstance Win32_DiskDrive -Filter ("Index=" + $partition[0].DiskNumber) -ErrorAction Stop)
+    if ($disks.Count -ne 1) { throw 'Cannot identify the system disk' }
+    $id = [string]$disks[0].PNPDeviceID
+    $seen = @{}
+    while ($id -notmatch '^PCI\\') {
+        if ([string]::IsNullOrWhiteSpace($id) -or $seen.ContainsKey($id)) { throw 'Cannot resolve system disk PCI ancestry' }
+        $seen[$id] = $true
+        $id = [string](Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_Parent' -ErrorAction Stop).Data
+    }
+    if ($id -notmatch '^PCI\\VEN_1AF4&DEV_(1004|1048)(&|\\)') {
+        return [pscustomobject]@{Required=$false;Healthy=$true;DeviceId=$id;Reason='NonVirtioScsiBootDisk'}
+    }
+    $devices = @(Get-CimInstance Win32_PnPEntity -ErrorAction Stop | Where-Object { $_.PNPDeviceID -ieq $id })
+    $drivers = @(Get-CimInstance Win32_PnPSignedDriver -ErrorAction Stop | Where-Object { $_.DeviceID -ieq $id })
+    $healthy = $false
+    if ($devices.Count -eq 1 -and $drivers.Count -eq 1) {
+        $device = $devices[0]; $driver = $drivers[0]
+        if ($device.ConfigManagerErrorCode -eq 0 -and $null -ne $device.ConfigManagerErrorCode -and
+            $device.Service -ieq 'vioscsi' -and $driver.InfName -match '^oem\d+\.inf$' -and
+            $driver.DriverVersion -eq '100.93.104.24000' -and $driver.DriverProviderName -eq 'Red Hat, Inc.' -and $driver.IsSigned -eq $true) {
+            $inf = Join-Path $env:WINDIR ('INF\' + $driver.InfName)
+            $sys = Join-Path $env:WINDIR 'System32\drivers\vioscsi.sys'
+            if ((Test-Path -LiteralPath $inf) -and (Test-Path -LiteralPath $sys)) {
+                $healthy = (Get-FileHash -LiteralPath $inf).Hash -eq 'E49A966F7313DA4F6130DB00D84B57A167ADA0DE3D877C7CC584A7AED99C5BA2' -and
+                    (Get-FileHash -LiteralPath $sys).Hash -eq 'BE1FD2D12FA178D44CCC40548CC160D695A356566414E88976FC33F9F6C5AFA3'
+            }
+        }
+    }
+    return [pscustomobject]@{Required=$true;Healthy=$healthy;DeviceId=$id}
+}
+
 function Assert-TemplatePreparationContext {
     param([Parameter(Mandatory=$true)]$Context)
     # InvocationContext is a launcher contract, not independent proof of Audit mode.

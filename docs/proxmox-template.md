@@ -1,87 +1,61 @@
-# Self-contained ISO and Proxmox VM template
+# Self-contained Proxmox Windows VM backup
 
 English (default) | [Tiếng Việt](proxmox-template.vi.md)
 
 ## Scope
 
-The opt-in profile builds an ISO containing the complete guest preparation payload. No post-install patch, Proxmox modification, host Apply script, or `cicustom` snippet is required.
+The opt-in `ProxmoxCloudbaseInit` profile builds installation media with pinned Cloudbase-Init, QEMU Guest Agent, serial/storage drivers, and automatic Audit preparation/Sysprep shutdown. Ordinary builds remain unchanged. No post-install patch, Proxmox modification, host Apply script, or `cicustom` is required.
 
-- Validated with Tiny11 Core / Windows 11 Pro x64 build 26300.9457.
-- Cloudbase-Init 1.1.9, QEMU Guest Agent 110.2.3, and generated ConfigDrive2.
-- An embedded Cloudbase reconciliation plugin owns hostname, Administrator password, and IPv4 provisioning, including day-2 changes. Native ExtendVolumes expands C:.
-- RDP is enabled after credential reconciliation, with NLA and Windows Firewall enabled. The approved inbound scope is Any.
-- No host automation is configured to force guest time. Administrators can still adjust it manually; QGA RPCs, RTC settings, and Windows NTP are not restricted or changed for this purpose.
+The delivered archive is an **ordinary VM backup**, not a Proxmox template. Restore and start it directly; do not convert it to a template or clone it as part of this workflow.
 
-> Core removes Windows Update, Defender, and components that cannot be restored. Use only when these limitations are acceptable. Licensing and activation remain the operator's responsibility.
+> Tiny11 Core removes Windows Update, Defender, and components that cannot be restored. Licensing and activation remain the operator's responsibility.
 
-## Build and install
+## Build and prepare a clean VM
 
-1. Build the Windows application as described in [usage](usage.md). Select Tiny11 Core and import a recipe containing `"TemplateProfile": "ProxmoxCloudbaseInit"`. The profile is off by default.
-2. Use compatible Windows 11 Pro x64 media. The builder downloads and verifies pinned installers, then bundles agents, helpers, configuration, and manifests. It does not install guest agents on the build host.
-3. Create an OVMF/UEFI VM with TPM 2.0, a 20 GiB SATA OS disk, and an E1000 NIC. Two CPUs and 4 GiB RAM were validated. Boot the ISO, select Pro, handle licensing/product-key prompts, and select the installation disk. No unattended disk wipe is configured.
-4. After Setup, Audit preparation automatically installs agents, verifies payload and health, runs Sysprep generalize, and shuts down. Do not boot the prepared source again for testing.
-5. Detach the installation ISO, retain OS-disk boot, add a native Cloud-Init drive using ConfigDrive2, and convert the stopped VM to a template.
+1. Follow [usage](usage.md), select fixed Tiny11 Core, and import a recipe containing `"TemplateProfile": "ProxmoxCloudbaseInit"`. Use compatible Windows 11 Pro x64 media.
+2. Create an OVMF/UEFI VM with TPM2.0, `scsihw: virtio-scsi-single`, a **20 GiB `scsi0`** OS disk, and an E1000 NIC. Enable the native **QEMU Guest Agent** option before installation. Two CPUs and 4 GiB RAM were validated.
+3. Boot the generated ISO. Handle licensing/product-key prompts and select the target disk. Setup includes the storage driver; no manual Load driver step or unattended disk wipe is required.
+4. Let Audit preparation install and verify agents, then run Sysprep and shut down automatically. Do not boot the sealed source again.
+5. Detach the installation ISO, set boot order to `scsi0`, add a native Cloud-Init drive, and select ConfigDrive2. Do not bake deployment passwords/IP settings into the source. **Do not run `qm template`.**
+6. Back up the stopped ordinary VM with native `vzdump` and zstd. Inspect `/etc/vzdump.conf` and hooks first: existing hooks can upload/move archives or run retention. Do not copy lab hooks onto another server.
 
-The ISO is installation media, not a prepared VM template.
+The storage package is pinned and injected offline into installation Windows and all boot images. See [driver provenance](virtio-scsi-driver.md).
 
-## Restore on another server
+## Restore and run directly
 
-Validated archive: `vzdump-qemu-windows-11-tiny.vma.zst` (4,141,754,422 bytes).
+Archive: `vzdump-qemu-windows-11-tiny.vma.zst`, **3,836,770,028 bytes**.
 
 ```text
-SHA-256: 04c325914c3c2a3e30e1828c1d7e6b61e428694b270d929a9c9e1efbde85cc7f
+SHA-256: c80db4f5b2e63afef97d2b766974af3590e30fdbc34ff55e30f2b69fa0f009c5
 ```
-
-Copy the archive to the destination server and verify its checksum. Choose an unused VMID and storage with sufficient capacity:
 
 ```bash
-sha256sum /path/template.vma.zst
-qmrestore /path/template.vma.zst NEW_TEMPLATE_ID --storage TARGET_STORAGE --unique 1
-qm config NEW_TEMPLATE_ID
+sha256sum /path/vzdump-qemu-windows-11-tiny.vma.zst
+qmrestore /path/vzdump-qemu-windows-11-tiny.vma.zst NEW_VM_ID --storage TARGET_STORAGE --unique 1
+qm config NEW_VM_ID
 ```
 
-Verify `template: 1`, the 20 GiB OS disk, EFI/TPM disks, and Cloud-Init drive. If restore does not preserve the template flag, keep the VM stopped and run `qm template NEW_TEMPLATE_ID`.
+Choose an unused VMID. Verify no enabled template flag, `scsi0`20GiB, `virtio-scsi-single`, EFI/TPM disks, native Cloud-Init drive, and boot order `scsi0`. Map the bridge and storage to the destination. The validated machine is Q35 9.0 with CPU `host`; the destination must support the selected machine/CPU configuration. These are native configuration choices, not node patches.
 
-Map the network bridge through Hardware → Network Device. The validated configuration uses CPU `host` and Q35 machine version 9.0; choose a supported CPU/machine model for the destination environment after checking compatibility. Storage, bridge, and CPU mapping are standard configuration, not Proxmox patches.
+Before first Start, set a unique Administrator password, hostname, IPv4/gateway/DNS through Cloud-Init and regenerate its image. Start the restored VM directly. First boot may take several minutes and may reboot while applying hostname. No clone step is needed.
 
-Do not boot the template. Create a full clone:
+## Day-2 and disk growth
 
-```bash
-qm clone NEW_TEMPLATE_ID NEW_VM_ID --full 1 --name YOUR_HOSTNAME
-```
+Change hostname, password, or static IPv4 through the GUI/API, regenerate ConfigDrive2, and perform a controlled reboot. Verify actual Windows configuration and authentication. The embedded Cloudbase reconciliation plugin owns these fields; unchanged metadata preserves direct Windows edits. Static-to-DHCP transitions are not implemented.
 
-In Cloud-Init, set a unique Administrator password and the required IPv4, gateway, and DNS settings. Regenerate the Cloud-Init image before starting the clone. Proxmox generates ConfigDrive2; no custom snippets or shared passwords are needed. First boot can take several minutes, and hostname application may require an automatic reboot.
+Grow the OS disk through Hardware → Resize disk, then reboot for native ExtendVolumes to expand C:. Never shrink the disk. Keep the clean source at20GiB.
 
-## Day-2 changes and disk growth
-
-- Change hostname, password, or IP through the Proxmox GUI/API, regenerate the image, and perform a controlled reboot. Verify the resulting Windows configuration and authentication.
-- Unchanged metadata does not overwrite direct Windows edits. Do not reset plugin state to force replay.
-- Grow the OS disk through Hardware → Resize disk, then reboot for native ExtendVolumes to expand C:. Never shrink the disk. Keep the source template at 20 GiB.
+RDP is enabled after credential reconciliation, with NLA and Windows Firewall enabled and the approved inbound scope Any. No host automation is configured to force guest time; administrator access remains unrestricted. This profile does not change RTC/NTP for that purpose.
 
 ## Verification and limitations
 
-The standards follow-up adds download/subprocess deadlines, transform diagnostics, explicit artifact-test skips, and API contract documentation. A temporary SDK 10 harness passed 7 tests and skipped 5 optional artifact tests; its required-artifact lane failed all 5 missing-prerequisite tests as expected. Python tests passed 32/32, and a read-only review found no further issues in this fix scope. Canonical SDK 8, Windows trust/process execution, and guest E2E validation have not been rerun. The preparation helper has changed: the existing v20 ISO/template and historical receipts do not certify these new source bytes.
+- Windows SDK8.0.426: **518/518 tests PASS, zero skipped**, including real DISM boot-image commit/reopen; win-x64 publish and Windows PowerShell5.1 parser PASS.
+- ISO build: native runner/wrapper exit0, 32m17s. ISO size4,864,966,656 bytes; SHA-256 `DC0A27E2751E79D8B00A85A756C6B0706A301EF9E50D2EADEAE9A0706543D768`.
+- Independent ISO inspection verified exact22-file payload, manifests, pins, absence of consumed runtime state, and boot-critical vioscsi in install.wim index1 and boot.wim indexes1/2.
+- Clean installation recognized the20GiB SCSI disk without manual drivers, reached healthy boot-disk checks, prepared/Sysprepped/shut down automatically. Offline success tag and unconsumed state were verified; source disk hash was unchanged by backup.
+- Native ordinary-VM restore/start completed unattended provisioning in approximately197s. Actual hostname/IP/routes/DNS, enabled SID-500, correct-versus-wrong credential authentication, healthy SCSI boot, and certificate-pinned RDP login/reconnect were verified. Remote archive SHA-256 matched local after upload.
+- Historical v20 tests additionally covered password/hostname/static-IP A→B→A, disk growth with marker integrity, and bounded CPU/RAM/RDP load. Those broader scenarios were not all repeated on v21; do not treat historical SATA evidence as a new SCSI stress run.
 
-| Check | Result |
-|---|---|
-| Source/tests against v20 snapshot | 95 files matched SHA-256 before the English-only follow-up |
-| Windows suite / publish / parser | 483/483 tests; publish and parser PASS in v20 receipts |
-| Python reconciliation tests | 32/32 PASS |
-| Clean ISO installation → Audit → Sysprep shutdown | PASS without guest patches |
-| Two clones / SID-500 / credential isolation / day-2 A→B→A | PASS |
-| Bounded CPU/RAM/RDP reliability | PASS across two runs, not one continuous 12-minute run |
-| Stopped-source backup and native restore | PASS; template flag, EFI/TPM, and 20 GiB OS disk preserved |
-| Clone from restored template | Password A→B→A, hostname/IP changes, 20→36 GiB growth, marker integrity, and RDP reconnect PASS |
-| VSS | Writers/provider readiness PASS; live-backup consistency not tested |
-| Gateway/DNS-only alternate endpoints | Deferred by the operator |
-| Multiple physical servers | Not tested; native restore validated on the original node |
+No second-server field test or live-backup consistency proof was performed. This archive was backed up from a stopped source; VSS readiness is not live-backup certification. Gateway/DNS-only alternate endpoint tests remain deferred. Sysprep BCD/WaaSMedic diagnostics were retained despite success/shutdown; logs are not claimed to be error-free. Earlier buildhost QGA hangs were recovered, not proven root-cause fixed. Lab restore harness errors were retained separately from guest acceptance evidence.
 
-The v20 build runner did not capture its exit code. Independent output inspection passed, the prepared source was checked for consumed runtime state, and the node-side artifact hash was verified. Sysprep diagnostics retain BCD/WaaSMedic errors despite a success tag, shutdown, and successful clone tests; logs are not claimed to be error-free.
-
-One earlier restored-clone boot displayed two Windows boot entries and required Enter; its cause remains unexplained. A newly recreated clone subsequently completed unattended first boot in 303 seconds with correct hostname, IP, and credentials. Controlled reboots and a cold boot also completed without key input. BCD was not patched; its default is the current Windows entry with a 30-second timeout.
-
-Artifact pins and driver hashes are recorded in `C:\ProgramData\Tiny11Template\manifest.json`; `guest-files.json` records helper inventory. Each build's working-directory `report.json` records actual Core compatibility preservation. Pins are maintained in `TemplateArtifactAcquirer.cs` and `TemplatePayloadStager.cs`; do not replace report evidence with an assumed preservation list.
-
-Before running a backup, inspect `/etc/vzdump.conf` and any existing hooks for side effects. The lab's global hook uploaded/moved the archive and ran retention; the archive was copied back and verified before restore. The template does not depend on that hook.
-
-Validated ISO: `tiny11-core-proxmox-test-v20.iso`, 4,855,713,792 bytes, SHA-256 `A0BEEC347242D3D339A6CA2B1EA4EB884AB7950F8CD0A4EC779665C5289155F3`.
+Payload pins/licenses are recorded in `manifest.json` and `guest-files.json`; each build's `report.json` records actual compatibility preservation. No credentials or private lab captures are part of this patch.

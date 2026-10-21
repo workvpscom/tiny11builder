@@ -390,6 +390,8 @@ public sealed partial class BuildEngine
                 await TemplatePayloadStager.CopyIntoImageAsync(staging, mount, token).ConfigureAwait(false);
                 await dism.RunAsync(token, $"/Image:{mount}", "/Add-Driver",
                     $"/Driver:{Path.Combine(staging, "tiny11-template", "drivers", "vioser.inf")}").ConfigureAwait(false);
+                await dism.RunAsync(token, "/Add-Driver", $"/Image:{mount}",
+                    $"/Driver:{Path.Combine(staging, "tiny11-template", "drivers", "vioscsi.inf")}").ConfigureAwait(false);
             }
             File.WriteAllText(Path.Combine(staging, "autounattend.xml"), UnattendBuilder.Create(image, recipe));
             if (recipe.SelectedOptions.Contains("cleanup") || recipe.Flavor == BuildFlavor.Core)

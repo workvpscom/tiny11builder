@@ -5,6 +5,20 @@ namespace Tiny11Builder.Core.Tests;
 
 public sealed class TemplateGuestPolicyTests
 {
+    // AC-S4: The observed boot-storage state gates preparation and Sysprep, without a storage installer.
+    [Fact]
+    public void Scsi_boot_health_gates_preparation_and_finalization()
+    {
+        Assert.Contains("$storage = Get-TemplateScsiBootDriverState", TemplateGuestAssets.PrepareScript);
+        Assert.Contains("if (-not $storage.Healthy)", TemplateGuestAssets.PrepareScript);
+        var finalizer = TemplateGuestAssets.FinalizeScript;
+        Assert.True(finalizer.IndexOf("$storage = Get-TemplateScsiBootDriverState", StringComparison.Ordinal) <
+                    finalizer.IndexOf("Start-Process $sysprep", StringComparison.Ordinal));
+        Assert.Contains("if (-not $storage.Healthy)", finalizer);
+        Assert.DoesNotContain("drivers\\vioscsi.inf", TemplateGuestAssets.PrepareScript);
+        Assert.DoesNotContain("pnputil", finalizer, StringComparison.OrdinalIgnoreCase);
+    }
+
     // GP-08 / GP-T14: Approved policy does not force the clock or alter RTC.
     [Fact]
     public void Policy_keeps_nla_firewall_and_windows_time_management()

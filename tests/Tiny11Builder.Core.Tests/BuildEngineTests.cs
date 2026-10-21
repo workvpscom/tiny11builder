@@ -314,7 +314,7 @@ internal sealed class FakeRunner(int build, string architecture, List<string> ev
             if (!args.Any(a => a.StartsWith("/Index:")))
                 return Result(boot ? "Index : 1\nIndex : 2\n" : file.Contains(@"\source\") ? "Index : 3\n" : "Index : 1\n");
             return Result($"Deployment Image Servicing and Management tool\nVersion: 10.0.99999.1000\n" +
-                $"Name : {(boot ? "Microsoft Windows Setup" : "Windows 11 Pro")}\nDescription : Image\n" +
+                $"Name : {(boot ? (args.Contains("/Index:1") ? "Microsoft Windows PE" : "Microsoft Windows Setup") : "Windows 11 Pro")}\nDescription : Image\n" +
                 $"Architecture : {architecture}\nVersion : 10.0.{build}\nServicePack Build : 123\n" +
                 $"Edition : Professional\nInstallation : Client\nSize : 16,000,000,000 bytes\n");
         }

@@ -8,6 +8,7 @@ public static class SetupInstaller
         recipe.ExpertActions.Any(action => action.Kind == ImageItemKind.ComponentPayload && action.Mode == ExpertActionMode.Remove);
 
     internal static bool RequiresBootEdit(BuildRecipe recipe) =>
+        recipe.TemplateProfile == TemplateProfile.ProxmoxCloudbaseInit ||
         recipe.SelectedOptions.Contains("hardware-bypass") || RequiresLegacy(recipe);
 
     internal static void ApplyLegacy(string mount, Action<string> log)
