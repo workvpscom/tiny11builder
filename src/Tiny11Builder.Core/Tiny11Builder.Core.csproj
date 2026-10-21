@@ -2,4 +2,9 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Template\*.py" LogicalName="Tiny11Builder.Core.Template.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Template\*.ps1" LogicalName="Tiny11Builder.Core.Template.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Template\Drivers\*" LogicalName="Tiny11Builder.Core.Template.Drivers.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

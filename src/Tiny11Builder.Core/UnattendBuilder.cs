@@ -15,7 +15,7 @@ public static class UnattendBuilder
         var oobe = new XElement(ns + "OOBE",
             new XElement(ns + "HideOEMRegistrationScreen", true));
         if (recipe.PreferLocalAccount) oobe.Add(new XElement(ns + "HideOnlineAccountScreens", true));
-        return new XDocument(new XDeclaration("1.0", "utf-8", null),
+        var document = new XDocument(new XDeclaration("1.0", "utf-8", null),
             new XElement(ns + "unattend", new XAttribute(XNamespace.Xmlns + "wcm", wcm),
                 new XElement(ns + "settings", new XAttribute("pass", "windowsPE"),
                     Component("Microsoft-Windows-Setup",
@@ -27,6 +27,23 @@ public static class UnattendBuilder
                                 new XElement(ns + "Value", 1))))),
                         new XElement(ns + "DynamicUpdate", new XElement(ns + "Enable", false)))),
                 new XElement(ns + "settings", new XAttribute("pass", "oobeSystem"),
-                    Component("Microsoft-Windows-Shell-Setup", oobe)))).ToString();
+                    Component("Microsoft-Windows-Shell-Setup", oobe))));
+        if (recipe.TemplateProfile != TemplateProfile.None)
+        {
+            document.Root!.Elements(ns + "settings").Single(e => (string?)e.Attribute("pass") == "windowsPE")
+                .Elements(ns + "component").Single(e => (string?)e.Attribute("name") == "Microsoft-Windows-Setup")
+                .Add(new XElement(ns + "UserData", new XElement(ns + "ProductKey", new XElement(ns + "WillShowUI", "Always"))));
+            document.Root!.Elements(ns + "settings").Single(e => (string?)e.Attribute("pass") == "oobeSystem")
+                .Add(Component("Microsoft-Windows-Deployment", new XElement(ns + "Reseal",
+                    new XElement(ns + "Mode", "Audit"), new XElement(ns + "ForceShutdownNow", false))));
+            XElement AuditCommand(int order, string script) => new(ns + "RunSynchronousCommand",
+                new XAttribute(wcm + "action", "add"), new XElement(ns + "Order", order),
+                new XElement(ns + "Path", "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\Tiny11Template\\" + script + " -InvocationContext AuditUser"),
+                new XElement(ns + "WillReboot", "OnRequest"));
+            document.Root.Add(new XElement(ns + "settings", new XAttribute("pass", "auditUser"),
+                Component("Microsoft-Windows-Deployment", new XElement(ns + "RunSynchronous",
+                    AuditCommand(1, "Prepare-Template.ps1"), AuditCommand(2, "Finalize-Template.ps1")))));
+        }
+        return document.ToString();
     }
 }

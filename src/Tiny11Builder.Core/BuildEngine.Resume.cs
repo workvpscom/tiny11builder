@@ -60,6 +60,7 @@ public sealed partial class BuildEngine
             UsedOptimizedMount = checkpoint.Report.UsedOptimizedMount, StagingResult = checkpoint.Report.SetupMedia,
             Cleanup = checkpoint.Report.RedundantData, Checkpoint = checkpoint, SetupPending = verified.SetupPending,
             CompressPending = checkpoint.Phase == ResumePhase.Committed,
+            TemplateArtifacts = checkpoint.Report.TemplateArtifacts, TemplateManifestSha256 = checkpoint.Report.TemplateManifestSha256,
             StageName = BuildProgressText.ResumeCheckStage
         };
         session.Features.AddRange(checkpoint.Report.Features);
@@ -210,6 +211,15 @@ public sealed partial class BuildEngine
                     tracking.Output($"Verifying the saved setup files: {percent:0}%");
                 }, token).ConfigureAwait(false);
         }).ConfigureAwait(false);
+        if (original.TemplateProfile != TemplateProfile.None)
+        {
+            if (checkpoint.Image.Architecture != "x64" || !Digest.IsSha256(checkpoint.Report.TemplateManifestSha256))
+                throw new InvalidDataException("Saved template profile image or manifest identity is invalid.");
+            await TemplatePayloadStager.ValidateMediaAsync(Path.Combine(directory, "media"), checkpoint.Report.TemplateArtifacts,
+                checkpoint.Report.TemplateManifestSha256!, token).ConfigureAwait(false);
+        }
+        else if (checkpoint.Report.TemplateArtifacts.Count != 0 || checkpoint.Report.TemplateManifestSha256 is not null)
+            throw new InvalidDataException("A non-template job contains unexpected template artifacts.");
         if (!committed)
         {
             var compressed = Path.Combine(directory, "media", checkpoint.CompressedImage!.RelativePath);

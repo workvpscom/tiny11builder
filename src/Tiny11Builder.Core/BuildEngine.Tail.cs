@@ -34,6 +34,8 @@ public sealed partial class BuildEngine
         public bool Mounted { get; set; }
         public MediaStagingResult? StagingResult { get; set; }
         public IReadOnlyList<ImageCleanupResult> Cleanup { get; set; } = [];
+        public IReadOnlyList<TemplateArtifactReceipt> TemplateArtifacts { get; set; } = [];
+        public string? TemplateManifestSha256 { get; set; }
         public List<FeatureRemovalVerification> Features { get; } = [];
         public List<RemovalVerification> Capabilities { get; } = [];
         public ResumeCheckpoint? Checkpoint { get; set; }
@@ -114,7 +116,8 @@ public sealed partial class BuildEngine
             Report = new()
             {
                 UsedOptimizedMount = s.UsedOptimizedMount, Execution = s.Execution, SetupMedia = s.StagingResult,
-                RedundantData = s.Cleanup, Features = s.Features.ToArray(), Capabilities = s.Capabilities.ToArray()
+                RedundantData = s.Cleanup, Features = s.Features.ToArray(), Capabilities = s.Capabilities.ToArray(),
+                TemplateArtifacts = s.TemplateArtifacts, TemplateManifestSha256 = s.TemplateManifestSha256
             },
             ActiveMilliseconds = s.TotalActive.TotalMilliseconds,
             Operations = s.Tracking.SnapshotCompleting("stage:Commit", "checkpoint:committed")
@@ -157,7 +160,8 @@ public sealed partial class BuildEngine
 
     private async Task ApplySetupImageAsync(BuildSession s, CancellationToken token)
     {
-        s.Stage("Setup image", SetupInstaller.RequiresLegacy(s.Recipe) ?
+        var template = s.Recipe.TemplateProfile == TemplateProfile.ProxmoxCloudbaseInit;
+        s.Stage("Setup image", template ? "Adding boot-storage support to Windows PE and Setup." : SetupInstaller.RequiresLegacy(s.Recipe) ?
             "Enabling the legacy Windows installer required by component-store removals." :
             "Applying hardware-requirement settings to the Windows Setup boot image.", token);
         var bootWim = Path.Combine(s.Staging, @"sources\boot.wim");
@@ -173,15 +177,27 @@ public sealed partial class BuildEngine
             bootImages.FirstOrDefault(i => i.Index == 2) ??
             throw new InvalidDataException("Cannot identify Windows Setup in boot.wim.");
         s.Dism.DisableOptimizedMount();
-        s.Mounted = true;
-        await s.Dism.RunAsync(token, "/Mount-Image", $"/ImageFile:{privateBoot}", $"/Index:{setup.Index}",
-            $"/MountDir:{s.Mount}").ConfigureAwait(false);
-        if (s.Recipe.SelectedOptions.Contains("hardware-bypass"))
-            registry.ApplySetupBypass(s.Mount, s.Log);
-        if (SetupInstaller.RequiresLegacy(s.Recipe))
-            SetupInstaller.ApplyLegacy(s.Mount, s.Log);
-        await s.Dism.RunAsync(token, "/Unmount-Image", $"/MountDir:{s.Mount}", "/Commit").ConfigureAwait(false);
-        s.Mounted = false;
+        // Each bootable PE image needs storage support; Setup-only policy stays on the identified Setup index.
+        // All commits remain private until every index succeeds, so failure/resume repeats the whole transaction.
+        var targets = template ? bootImages : new[] { setup }.AsEnumerable();
+        foreach (var image in targets)
+        {
+            s.Mounted = true;
+            await s.Dism.RunAsync(token, "/Mount-Image", $"/ImageFile:{privateBoot}", $"/Index:{image.Index}",
+                $"/MountDir:{s.Mount}").ConfigureAwait(false);
+            if (template)
+                await s.Dism.RunAsync(token, "/Add-Driver", $"/Image:{s.Mount}",
+                    $"/Driver:{Path.Combine(s.Staging, "tiny11-template", "drivers", "vioscsi.inf")}").ConfigureAwait(false);
+            if (image.Index == setup.Index)
+            {
+                if (s.Recipe.SelectedOptions.Contains("hardware-bypass"))
+                    registry.ApplySetupBypass(s.Mount, s.Log);
+                if (SetupInstaller.RequiresLegacy(s.Recipe))
+                    SetupInstaller.ApplyLegacy(s.Mount, s.Log);
+            }
+            await s.Dism.RunAsync(token, "/Unmount-Image", $"/MountDir:{s.Mount}", "/Commit").ConfigureAwait(false);
+            s.Mounted = false;
+        }
         Digest.RequireCompleteWim(privateBoot, "The edited Windows Setup image");
         // The edit has committed; validating and placing it is not interruptible, so finished work is not discarded.
         var edited = await s.Dism.GetImagesAsync(privateBoot, CancellationToken.None).ConfigureAwait(false);
@@ -296,6 +312,12 @@ public sealed partial class BuildEngine
 
     private async Task CreateIsoAsync(BuildSession s, CancellationToken token)
     {
+        if (s.Recipe.TemplateProfile != TemplateProfile.None)
+        {
+            TemplateContractValidator.ValidateInitialAnswer(await File.ReadAllTextAsync(Path.Combine(s.Staging, "autounattend.xml"), token).ConfigureAwait(false));
+            await TemplatePayloadStager.ValidateMediaAsync(s.Staging, s.TemplateArtifacts,
+                s.TemplateManifestSha256 ?? throw new InvalidDataException("Template manifest identity is missing."), token).ConfigureAwait(false);
+        }
         s.Stage("Create ISO", "Creating a UEFI-bootable ISO using Microsoft's oscdimg.", token);
         if (File.Exists(s.TemporaryIso))
         {
@@ -405,6 +427,7 @@ public sealed partial class BuildEngine
             {
                 SchemaVersion = 1, CompletedUtc = DateTimeOffset.UtcNow, Image = s.Image, recipe.Flavor,
                 LegacyInstallerEnabled = SetupInstaller.RequiresLegacy(recipe),
+                recipe.TemplateProfile, TemplateArtifacts = s.TemplateArtifacts, TemplateManifestSha256 = s.TemplateManifestSha256,
                 recipe.SelectedOptions, recipe.ExpertActions, recipe.Compression, recipe.EnableNetFx3,
                 recipe.TurboMode, recipe.RemoveRedundantData, recipe.OmitNetFx3SetupPayload,
                 Execution = s.Execution, UsedOptimizedMount = s.UsedOptimizedMount, SetupMedia = s.StagingResult,

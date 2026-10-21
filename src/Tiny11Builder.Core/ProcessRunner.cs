@@ -3,7 +3,11 @@ using System.Text;
 
 namespace Tiny11Builder.Core;
 
-public sealed record ProcessResult(int ExitCode, string Output);
+public sealed record ProcessResult(int ExitCode, string Output)
+{
+    public string StandardOutput { get; init; } = "";
+    public string StandardError { get; init; } = "";
+}
 
 public interface IProcessRunner
 {
@@ -25,14 +29,20 @@ public sealed class ProcessRunner : IProcessRunner
         foreach (var arg in arguments) info.ArgumentList.Add(arg);
         using var process = new Process { StartInfo = info };
         var text = new StringBuilder();
-        void Receive(object sender, DataReceivedEventArgs e)
+        var standardOutput = new StringBuilder();
+        var standardError = new StringBuilder();
+        void Receive(DataReceivedEventArgs e, StringBuilder stream)
         {
             if (e.Data is null) return;
-            lock (text) text.AppendLine(e.Data);
+            lock (text)
+            {
+                text.AppendLine(e.Data);
+                stream.AppendLine(e.Data);
+            }
             output?.Invoke(e.Data);
         }
-        process.OutputDataReceived += Receive;
-        process.ErrorDataReceived += Receive;
+        process.OutputDataReceived += (_, e) => Receive(e, standardOutput);
+        process.ErrorDataReceived += (_, e) => Receive(e, standardError);
         if (!process.Start()) throw new IOException($"Unable to start {Path.GetFileName(executable)}.");
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
@@ -46,6 +56,9 @@ public sealed class ProcessRunner : IProcessRunner
         await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
         process.WaitForExit();
         if (!finishOnCancellation) cancellationToken.ThrowIfCancellationRequested();
-        return new(process.ExitCode, text.ToString());
+        return new(process.ExitCode, text.ToString())
+        {
+            StandardOutput = standardOutput.ToString(), StandardError = standardError.ToString()
+        };
     }
 }

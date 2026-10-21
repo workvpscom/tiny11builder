@@ -8,6 +8,13 @@ namespace Tiny11Builder.Core.Tests;
 [SupportedOSPlatform("windows")]
 public sealed class SetupInstallerTests
 {
+    // AC-S2: Even regular profile media must expose the SCSI target before installation.
+    [Theory]
+    [InlineData(TemplateProfile.None, false)]
+    [InlineData(TemplateProfile.ProxmoxCloudbaseInit, true)]
+    public void Template_profile_requires_boot_edit_without_other_Setup_changes(TemplateProfile profile, bool expected) =>
+        Assert.Equal(expected, SetupInstaller.RequiresBootEdit(new() { Flavor = BuildFlavor.Regular, SelectedOptions = [], TemplateProfile = profile }));
+
     [Theory]
     [InlineData(BuildFlavor.Core, true)]
     [InlineData(BuildFlavor.Regular, false)]
@@ -122,6 +129,58 @@ public sealed class SetupInstallerTests
         var calls = fixture.Runner.Calls.Skip(before).ToArray();
         Assert.Single(calls, args => args.Contains("/Mount-Image"));
         Assert.DoesNotContain(calls, args => args.Contains("/Export-Image"));
+    }
+
+    // AC-S2: Optional real DISM validation commits and reopens every boot image; it does not build an ISO.
+    [TemplateArtifactFact("TINY11_SETUP_ISO_CHECK")]
+    public async Task Scsi_driver_survives_every_real_boot_image_commit_when_configured()
+    {
+        var iso = TemplateArtifactFactAttribute.Require("TINY11_SETUP_ISO_CHECK");
+        using var fixture = new BuildFixture();
+        using var media = new MediaSourceFactory().Open(iso);
+        var mount = NativeTests.CreateOwnedMount(fixture.Root, fakeWindows: false);
+        var job = Path.GetDirectoryName(mount)!;
+        var working = Path.Combine(job, "boot.wim");
+        File.Copy(Path.Combine(media.RootPath, @"sources\boot.wim"), working);
+        File.SetAttributes(working, FileAttributes.Normal);
+        var drivers = Path.Combine(job, "drivers");
+        Directory.CreateDirectory(drivers);
+        foreach (var name in new[] { "vioscsi.cat", "vioscsi.inf", "vioscsi.sys" })
+            await File.WriteAllBytesAsync(Path.Combine(drivers, name), TemplateGuestAssets.Driver(name));
+        var dism = new DismClient(ToolLocator.FindDism(), new ProcessRunner(), null,
+            new(job, Path.Combine(job, "dism.log"), false));
+        var images = await dism.GetImagesAsync(working, CancellationToken.None);
+        var attempted = false;
+        fixture.AllowCleanup = false;
+        try
+        {
+            foreach (var image in images)
+            {
+                attempted = true;
+                await dism.RunAsync(CancellationToken.None, "/Mount-Image", $"/ImageFile:{working}", $"/Index:{image.Index}", $"/MountDir:{mount}", "/CheckIntegrity");
+                await dism.RunAsync(CancellationToken.None, "/Add-Driver", $"/Image:{mount}", $"/Driver:{Path.Combine(drivers, "vioscsi.inf")}");
+                await dism.RunAsync(CancellationToken.None, "/Unmount-Image", $"/MountDir:{mount}", "/Commit", "/CheckIntegrity");
+                attempted = false;
+                attempted = true;
+                await dism.RunAsync(CancellationToken.None, "/Mount-Image", $"/ImageFile:{working}", $"/Index:{image.Index}", $"/MountDir:{mount}", "/ReadOnly", "/CheckIntegrity");
+                Assert.Equal(TemplateGuestAssets.Driver("vioscsi.sys"), await File.ReadAllBytesAsync(Path.Combine(mount, @"Windows\System32\drivers\vioscsi.sys")));
+                var inventory = await dism.RunAsync(CancellationToken.None, "/Get-Drivers", $"/Image:{mount}");
+                Assert.Contains("vioscsi.inf", inventory, StringComparison.OrdinalIgnoreCase);
+                await dism.RunAsync(CancellationToken.None, "/Unmount-Image", $"/MountDir:{mount}", "/Discard");
+                attempted = false;
+            }
+            Assert.Equal(images.Select(image => image.Index), (await dism.GetImagesAsync(working, CancellationToken.None)).Select(image => image.Index));
+        }
+        finally
+        {
+            if (attempted)
+            {
+                var mounted = await dism.RunAsync(CancellationToken.None, "/Get-MountedWimInfo");
+                if (mounted.Contains(mount, StringComparison.OrdinalIgnoreCase))
+                    await dism.RunAsync(CancellationToken.None, "/Unmount-Image", $"/MountDir:{mount}", "/Discard");
+            }
+            fixture.AllowCleanup = true;
+        }
     }
 
     [Fact]

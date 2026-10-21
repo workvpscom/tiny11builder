@@ -12,3 +12,7 @@
 tiny11maker.ps1 -text
 tiny11Coremaker.ps1 -text
 autounattend.xml -text
+# Preserve pinned upstream driver bytes; disable newline conversion.
+src/Tiny11Builder.Core/Template/Drivers/vioser.inf -text -diff
+src/Tiny11Builder.Core/Template/Drivers/vioscsi.inf -text -diff
+src/Tiny11Builder.Core/Template/Drivers/vioscsi-LICENSE.txt -text whitespace=cr-at-eol

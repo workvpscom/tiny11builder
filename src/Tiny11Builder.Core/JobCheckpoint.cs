@@ -49,6 +49,8 @@ internal sealed record SourceIdentity
 internal sealed record CheckpointReport
 {
     public bool LegacyInstallerEnabled { get; init; }
+    public IReadOnlyList<TemplateArtifactReceipt> TemplateArtifacts { get; init; } = [];
+    public string? TemplateManifestSha256 { get; init; }
     public required bool UsedOptimizedMount { get; init; }
     public required BuildExecutionPlan Execution { get; init; }
     public MediaStagingResult? SetupMedia { get; init; }
