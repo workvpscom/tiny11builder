@@ -47,6 +47,70 @@ public sealed class TemplateRebootTests
         Assert.Equal(0, result.ExitCode);
     }
 
+    // AR-1/AR-2: MSI success does not suppress OS reboot requests, and repeated boots are bounded.
+    [Fact]
+    public async Task Pending_reboot_requests_are_bounded_by_boot_identity()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "tiny11-reboot-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var script = TemplateGuestAssets.StateScript + "\n$ErrorActionPreference='Stop';$p='" + root.Replace("'", "''") +
+                "\\reboot.json';" +
+                "if(Request-TemplatePendingReboot -Path $p -ManifestSha256 'manifest-a' -BootIdentity 'boot-a' -Pending $false){throw 'Unexpected request'};" +
+                "if(Test-Path $p){throw 'Clean boot created journal'};" +
+                "foreach($b in @('boot-a','boot-a','boot-b')){if(-not(Request-TemplatePendingReboot -Path $p -ManifestSha256 'manifest-a' -BootIdentity $b -Pending $true)){throw 'Request lost'}};" +
+                "$j=Get-Content $p -Raw|ConvertFrom-Json;if($j.Attempts -ne 2){throw 'Same boot consumed attempt'};" +
+                "$rejected=$false;try{Request-TemplatePendingReboot -Path $p -ManifestSha256 'manifest-a' -BootIdentity 'boot-c' -Pending $true}catch{$rejected=$true};if(-not $rejected){throw 'Unbounded reboot'};" +
+                "if(Request-TemplatePendingReboot -Path $p -ManifestSha256 'manifest-a' -BootIdentity 'boot-c' -Pending $false){throw 'Cleared pending state blocked resume'};exit 0";
+            var result = await RunStateScriptAsync(script);
+            Assert.True(result.ExitCode == 0, result.Output);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    // AR-3: Reboot state belongs to the verified guest manifest.
+    [Fact]
+    public async Task Reboot_journal_rejects_another_manifest()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "tiny11-reboot-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var script = TemplateGuestAssets.StateScript + "\n$ErrorActionPreference='Stop';$p='" + root.Replace("'", "''") +
+                "\\reboot.json';$null=Request-TemplatePendingReboot -Path $p -ManifestSha256 'manifest-a' -BootIdentity 'boot-a' -Pending $true;" +
+                "$rejected=$false;try{Request-TemplatePendingReboot -Path $p -ManifestSha256 'manifest-b' -BootIdentity 'boot-b' -Pending $true}catch{$rejected=$true};if(-not $rejected){throw 'Foreign journal accepted'};exit 0";
+            var result = await RunStateScriptAsync(script);
+            Assert.True(result.ExitCode == 0, result.Output);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    // AR-4: Only actual pending OS work requests a reboot; an empty rename value is harmless.
+    [Theory]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(false, false, true, true)]
+    public async Task Pending_reboot_reads_Windows_flags(bool cbs, bool update, bool rename, bool expected)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var script = TemplateGuestAssets.StateScript + "\n$ErrorActionPreference='Stop';" +
+            "function Test-Path {param($Path) if($Path -like '*Servicing*'){return $" + cbs.ToString().ToLowerInvariant() + "};return $" + update.ToString().ToLowerInvariant() + "};" +
+            "function Get-ItemProperty {param($Path,$Name,$ErrorAction) [pscustomobject]@{PendingFileRenameOperations=@(" +
+            (rename ? "'\\??\\C:\\old.exe',''" : "'',''") + ")}};" +
+            "if((Test-TemplateWindowsRebootPending) -ne $" + expected.ToString().ToLowerInvariant() + "){throw 'Wrong pending classification'};exit 0";
+        var result = await RunStateScriptAsync(script);
+        Assert.True(result.ExitCode == 0, result.Output);
+    }
+
+    private static Task<ProcessResult> RunStateScriptAsync(string script) => new ProcessRunner().RunAsync(
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(script))],
+        null, CancellationToken.None);
+
     // GP-02/GP-05: Shared entrypoint logic preserves reboot requirements after interruption.
     [Theory]
     [InlineData("boot-a", "boot-a", true)]

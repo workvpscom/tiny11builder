@@ -403,11 +403,11 @@ public sealed partial class BuildEngine
                     [$"/Image:{mount}", "/Cleanup-Image", "/StartComponentCleanup"]).ConfigureAwait(false);
             }
             Stage("Advanced payloads", "Applying original-builder and expert payload removals to the offline copy only.");
-            imageOperations.RemoveOriginalFiles(mount, image.Architecture, recipe.SelectedOptions, Log, recipe.TurboMode);
+            imageOperations.RemoveOriginalFiles(mount, image.Architecture, recipe.SelectedOptions, Log, recipe.TurboMode, recipe.TemplateProfile);
             if (recipe.Flavor == BuildFlavor.Core)
             {
                 Stage("Core pruning", "Trimming Core component payloads and recovery files.");
-                imageOperations.TrimCore(mount, image.Architecture, Log, token, recipe.TurboMode);
+                imageOperations.TrimCore(mount, image.Architecture, Log, token, recipe.TurboMode, recipe.TemplateProfile);
             }
             imageOperations.ApplyNativeActions(mount, recipe.ExpertActions, Log, recipe.TurboMode);
             if (recipe.RemoveRedundantData)

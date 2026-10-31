@@ -76,8 +76,8 @@ public sealed class TemplateDriverTests
             var executable = OperatingSystem.IsWindows()
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe") : "pwsh";
             var run = await new ProcessRunner().RunAsync(executable,
-                ["-NoProfile", "-NonInteractive", "-File", Path.Combine(root, "test.ps1"), "-Root", root, "-Device", device, "-Mode", mode], null, CancellationToken.None);
-            Assert.Equal(0, run.ExitCode);
+                ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(root, "test.ps1"), "-Root", root, "-Device", device, "-Mode", mode], null, CancellationToken.None);
+            Assert.True(run.ExitCode == 0, run.Output);
             using var result = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "result.json")));
             Assert.True(accepted == result.RootElement.GetProperty("Accepted").GetBoolean(), result.RootElement.ToString());
             if (accepted) Assert.Equal(device != "SATA", result.RootElement.GetProperty("Result").GetProperty("Required").GetBoolean());

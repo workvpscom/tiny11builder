@@ -6,6 +6,36 @@ function Test-TemplateRebootOutstanding {
     return [string]$State.BootIdentity -eq $CurrentBootIdentity
 }
 
+function Test-TemplateWindowsRebootPending {
+    $renames = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
+    return (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+        (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+        @($renames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0
+}
+
+function Request-TemplatePendingReboot {
+    param([Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$ManifestSha256,
+        [Parameter(Mandatory=$true)][string]$BootIdentity,
+        [Parameter(Mandatory=$true)][bool]$Pending)
+    if (-not $Pending) { return $false }
+    $attempts = 0
+    if (Test-Path -LiteralPath $Path) {
+        $saved = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        if ($saved.SchemaVersion -ne 1 -or $saved.ManifestSha256 -ne $ManifestSha256 -or
+            [string]::IsNullOrWhiteSpace([string]$saved.BootIdentity) -or
+            ($saved.Attempts -isnot [int] -and $saved.Attempts -isnot [long]) -or $saved.Attempts -lt 1 -or $saved.Attempts -gt 2) {
+            throw 'Pending reboot journal identity is invalid'
+        }
+        if ($saved.BootIdentity -eq $BootIdentity) { return $true }
+        $attempts = $saved.Attempts
+    }
+    if ($attempts -ge 2) { throw 'Windows reboot requirement persisted after two requested reboots' }
+    @{SchemaVersion=1;ManifestSha256=$ManifestSha256;BootIdentity=$BootIdentity;Attempts=($attempts+1);Reason='WindowsPendingReboot';Utc=[DateTime]::UtcNow.ToString('o')} |
+        ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding UTF8
+    return $true
+}
+
 function Get-TemplateSerialDriverState {
     $devices = @(Get-CimInstance Win32_PnPEntity | Where-Object {
         $_.PNPDeviceID -match '^PCI\\VEN_1AF4&DEV_(1003|1043)(&|\\)'

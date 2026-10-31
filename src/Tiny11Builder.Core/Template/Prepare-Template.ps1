@@ -55,6 +55,7 @@ try {
         $installedPlugin = Join-Path $env:ProgramFiles 'Cloudbase Solutions\Cloudbase-Init\Python\Lib\site-packages\tiny11_cloudbase.py'
         if ((Get-FileHash $installedPlugin).Hash -ne (Get-FileHash (Join-Path $root 'tiny11_cloudbase.py')).Hash) { throw 'Prepared plugin changed' }
         & (Join-Path $root 'Configure-GuestPolicy.ps1') -VerifyOnly
+        if (Request-TemplatePendingReboot -Path (Join-Path $root 'pending-reboot.json') -ManifestSha256 $manifestHash -BootIdentity $bootIdentity -Pending (Test-TemplateWindowsRebootPending)) { exit 2 }
         exit 0
     }
     foreach ($name in @('vioser.cat', 'vioscsi.cat')) {
@@ -143,7 +144,8 @@ try {
     if ($null -eq $admin -or $admin.Name -ne 'Administrator') { throw 'Built-in Administrator identity mismatch' }
     @{Stage='Installed';ManifestSha256=$manifestHash;RebootRequested=$reboot;BootIdentity=$bootIdentity;Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content (Join-Path $root 'prepared.json') -Encoding UTF8
     @{Stage='Prepared';Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
-    # WillReboot=OnRequest: exit 1 requests a Setup reboot before the next command.
+    # OnRequest exit 2 resumes this verified preparation command after the reboot.
+    if (Request-TemplatePendingReboot -Path (Join-Path $root 'pending-reboot.json') -ManifestSha256 $manifestHash -BootIdentity $bootIdentity -Pending (Test-TemplateWindowsRebootPending)) { exit 2 }
     if ($reboot) { exit 1 }
     exit 0
 } catch {

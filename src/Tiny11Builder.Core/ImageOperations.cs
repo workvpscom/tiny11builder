@@ -11,8 +11,10 @@ public interface IImageOperations
 {
     IReadOnlyList<ImageInventoryItem> ReadNativeInventory(string mount);
     void ApplyNativeActions(string mount, IReadOnlyList<ExpertAction> actions, Action<string> log, bool turboMode = false);
-    void RemoveOriginalFiles(string mount, string architecture, IReadOnlyList<string> options, Action<string> log, bool turboMode = false);
-    void TrimCore(string mount, string architecture, Action<string> log, CancellationToken token, bool turboMode = false);
+    void RemoveOriginalFiles(string mount, string architecture, IReadOnlyList<string> options, Action<string> log, bool turboMode = false,
+        TemplateProfile templateProfile = TemplateProfile.None);
+    void TrimCore(string mount, string architecture, Action<string> log, CancellationToken token, bool turboMode = false,
+        TemplateProfile templateProfile = TemplateProfile.None);
     IReadOnlyList<ImageCleanupResult> CleanRedundantData(string mount, Action<string> log, CancellationToken token);
 }
 
@@ -111,16 +113,26 @@ public sealed class ImageOperations : IImageOperations
         }
     }
 
-    public void RemoveOriginalFiles(string mount, string architecture, IReadOnlyList<string> options, Action<string> log, bool turboMode = false)
+    public void RemoveOriginalFiles(string mount, string architecture, IReadOnlyList<string> options, Action<string> log, bool turboMode = false,
+        TemplateProfile templateProfile = TemplateProfile.None)
     {
         RequireOwnedMount(mount);
         if (options.Contains("onedrive-files"))
             foreach (var path in new[] { @"Windows\System32\OneDriveSetup.exe", @"Windows\SysWOW64\OneDriveSetup.exe" })
                 Remove(mount, path, log, turboMode: turboMode);
         if (!options.Contains("edge-files")) return;
+        var preserveWebView = templateProfile == TemplateProfile.ProxmoxCloudbaseInit;
+        // EdgeCore shares browser/Runtime binaries; EdgeUpdate services the Evergreen Runtime too.
+        // Remove only the browser tree for this profile, leaving existing Runtime dependencies intact.
+        var edgeDirectories = preserveWebView ? new[] { "Edge" } : new[] { "Edge", "EdgeCore", "EdgeUpdate", "EdgeWebView" };
         foreach (var basePath in new[] { "Program Files", "Program Files (x86)" })
-            foreach (var name in new[] { "Edge", "EdgeCore", "EdgeUpdate", "EdgeWebView" })
+            foreach (var name in edgeDirectories)
                 Remove(mount, Path.Combine(basePath, "Microsoft", name), log, turboMode: turboMode);
+        if (preserveWebView)
+        {
+            log("Proxmox profile: preserving existing WebView2 Runtime payloads, EdgeCore and EdgeUpdate; no Runtime is installed by this step.");
+            return;
+        }
         Remove(mount, @"Windows\System32\Microsoft-Edge-Webview", log, turboMode: turboMode);
         var store = Path.Combine(mount, @"Windows\WinSxS");
         foreach (var path in Directory.EnumerateDirectories(store).Where(p =>
@@ -128,12 +140,15 @@ public sealed class ImageOperations : IImageOperations
             Remove(mount, Path.GetRelativePath(mount, path), log, turboMode: turboMode);
     }
 
-    public static bool PreserveCoreDirectory(string name)
+    public static bool PreserveCoreDirectory(string name, TemplateProfile templateProfile = TemplateProfile.None)
     {
-        return CoreMetadataDirectories.Contains(name) || CoreRuntimePattern.IsMatch(name);
+        return CoreMetadataDirectories.Contains(name) || CoreRuntimePattern.IsMatch(name) ||
+            (templateProfile == TemplateProfile.ProxmoxCloudbaseInit &&
+             name.Contains("microsoft-edge-webview", StringComparison.OrdinalIgnoreCase));
     }
 
-    public void TrimCore(string mount, string architecture, Action<string> log, CancellationToken token, bool turboMode = false)
+    public void TrimCore(string mount, string architecture, Action<string> log, CancellationToken token, bool turboMode = false,
+        TemplateProfile templateProfile = TemplateProfile.None)
     {
         RequireOwnedMount(mount);
         var store = Path.Combine(mount, @"Windows\WinSxS");
@@ -143,7 +158,7 @@ public sealed class ImageOperations : IImageOperations
             if (!directories.Any(d => Path.GetFileName(d).StartsWith(nativePrefix, StringComparison.OrdinalIgnoreCase) &&
                                       Path.GetFileName(d).Contains(family, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException($"Core cannot identify the {architecture} {family} runtime in this build. No component payloads have been pruned.");
-        var removable = directories.Where(d => !PreserveCoreDirectory(Path.GetFileName(d))).ToArray();
+        var removable = directories.Where(d => !PreserveCoreDirectory(Path.GetFileName(d), templateProfile)).ToArray();
         foreach (var path in removable) log($"Plan payload: {Path.GetRelativePath(mount, path)}");
         if (File.Exists(Path.Combine(mount, @"Windows\System32\Recovery\winre.wim")))
             log(@"Plan payload: Windows\System32\Recovery\winre.wim");

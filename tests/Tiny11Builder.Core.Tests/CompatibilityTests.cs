@@ -230,6 +230,20 @@ public sealed class CompatibilityTests
     public void Core_retention_is_not_tied_to_a_specific_build(string name, bool kept) =>
         Assert.Equal(kept, ImageOperations.PreserveCoreDirectory(name));
 
+    // WV-1: The profile exception must not change ordinary Core retention.
+    [Theory]
+    [InlineData("amd64_microsoft-edge-webview_31bf_10.0.26300_none_x", true)]
+    [InlineData("wow64_microsoft-edge-webview_31bf_10.0.26300_none_x", true)]
+    [InlineData("AMD64_MICROSOFT-EDGE-WEBVIEW.Resources_31bf_en-us_x", true)]
+    [InlineData("amd64_microsoft-edge-browser_31bf_10.0.26300_none_x", false)]
+    [InlineData("amd64_optional-component_31bf_10.0.26300_none_x", false)]
+    public void Core_webview_payload_preservation_is_profile_scoped(string name, bool preservedByProfile)
+    {
+        Assert.Equal(preservedByProfile, ImageOperations.PreserveCoreDirectory(name, TemplateProfile.ProxmoxCloudbaseInit));
+        Assert.False(ImageOperations.PreserveCoreDirectory(name, TemplateProfile.None));
+        Assert.False(ImageOperations.PreserveCoreDirectory(name));
+    }
+
     [Fact]
     public void Privacy_keeps_required_diagnostics_and_does_not_disable_security_services()
     {

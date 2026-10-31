@@ -50,8 +50,8 @@ public sealed class TemplateImportProbeTests
             var executable = OperatingSystem.IsWindows()
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe") : "pwsh";
             var result = await new ProcessRunner().RunAsync(executable,
-                ["-NoProfile", "-NonInteractive", "-File", script, "-Sandbox", sandbox], null, watchdog.Token, finishOnCancellation: false);
-            Assert.Equal(10, result.ExitCode);
+                ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Sandbox", sandbox], null, watchdog.Token, finishOnCancellation: false);
+            Assert.True(result.ExitCode == 10, result.Output);
             using var status = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(sandbox, "preparation-status.json")));
             Assert.Contains("import timed out", status.RootElement.GetProperty("Error").GetString());
             Assert.True(File.Exists(Path.Combine(sandbox, "wait-observed")), result.Output);

@@ -10,6 +10,20 @@ Archive bàn giao là **backup VM thường**, không phải Proxmox template. R
 
 > Tiny11 Core loại bỏ Windows Update, Defender và các component không thể phục hồi. License/activation do operator quản lý.
 
+## Giữ WebView2 Runtime (thay source; cần artifact mới)
+
+Chỉ `TemplateProfile.ProxmoxCloudbaseInit` giữ WebView2 Runtime đã có sẵn qua cả bước `edge-files` và Core component pruning. Fixed Core removal set không đổi. Builds thường (`TemplateProfile.None`, kể cả recipe không khai profile) giữ behavior xóa trước đây.
+
+Profile giữ `Microsoft\EdgeWebView`, shared binaries `Microsoft\EdgeCore` và Evergreen updater `Microsoft\EdgeUpdate` trong cả hai Program Files roots; giữ `Windows\System32\Microsoft-Edge-Webview` và WinSxS `microsoft-edge-webview` payloads (kể cả architecture/resource variants). Vẫn xóa cây browser `Microsoft\Edge` và Core payloads không liên quan. Giữ nguyên các cây shared thay vì đoán file/version nào xóa được: Microsoft mô tả [EdgeCore shared binaries](https://learn.microsoft.com/en-us/answers/questions/1060027/edge-enterprise-installation-without-folder-edgeco), [hard links và Runtime độc lập browser](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution), [update mechanism chung Edge/WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/enterprise). Giữ updater để không phá mechanism này, không khẳng định đã kiểm updates hoặc Runtime launch trên Core.
+
+Đây là preservation, **không cài Runtime**. Không thêm installer hoặc download fallback. Thay đổi này chưa xác minh Runtime presence trong build source thực tế. Nếu source thiếu Runtime, preservation không cung cấp được; cần duyệt kế hoạch cài offline riêng trước khi khẳng định self-contained. Presence của files cũng không chứng minh WebView2 apps chạy được trên image đã strip.
+
+ISO/archive hashes và evidence bên dưới thuộc artifact cũ, không phải nghiệm thu WebView2 change này. Không patch ISO/VM/backup hiện có. Sau review cần build **ISO mới**, clean install, kiểm Runtime detection và rendering của WebView2 app thật, rồi kiểm ordinary SCSI VM backup/restore. Windows SDK8 validation đạt 544 tests, zero failure/skip, gồm native WebView2 preservation và reboot-lifecycle regressions. Revision v23 đã build/inspect, clean install trên SCSI 20 GiB, tự reboot một lần vì Windows pending operations rồi tự seal bằng Sysprep. Ordinary stopped-VM backup đã restore sang VM riêng; ConfigDrive provisioning, kiểm password đúng/sai và RDP authenticated session đều PASS. Interactive WebView2 probe đạt Runtime initialization, HTML navigation, DOM/JavaScript, canvas pixel và PNG capture. Guest Runtime là `155.0.4283.62`; giữ updater nghĩa là version có thể khác offline image. Kết quả chỉ áp dụng artifact v23 đã kiểm, không bảo đảm mọi build tương lai.
+
+### Xử lý reboot trong Audit
+
+Clean SCSI installation của revision giữ Runtime phát hiện updater còn pending file-renames dù installers trả success. Finalizer từ chối Sysprep đúng guard, nhưng terminal failure làm Audit pass không resume được. VM lỗi chỉ giữ làm evidence, không bàn giao. Source mới kiểm actual Windows reboot flags ở cả preparation/finalization, dùng return code 2 của `WillReboot=OnRequest` để reboot và chạy lại cùng command. Journal thuộc manifest chỉ cho phép tối đa hai requested boots; pending dai dẳng vẫn fail thay vì reboot vô hạn. Không sửa Setup registry hoặc patch guest sau cài trong quy trình bàn giao. Source v23 đã đạt clean install, tự seal, ordinary backup/restore và WebView2 rendering thật. Restore harness đầu dùng hostname quá giới hạn Windows 15 ký tự và bị từ chối đúng guard; sửa Proxmox metadata rồi reboot qua đường hỗ trợ đã phục hồi provisioning, không patch guest/state.
+
 ## Build và chuẩn bị VM sạch
 
 1. Theo [usage](usage.md), chọn fixed Tiny11 Core và import recipe có `"TemplateProfile": "ProxmoxCloudbaseInit"`. Dùng Windows11Pro x64 media phù hợp.

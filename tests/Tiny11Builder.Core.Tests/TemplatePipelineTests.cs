@@ -32,6 +32,9 @@ public sealed class TemplatePipelineTests
         fixture.Runner.OnCommand = null;
         Assert.True(failure.IsCancellation, failure.ToString());
         Assert.True(sawImagePayload, failure.ToString());
+        // WV-3: Both destructive passes must receive the opt-in profile, without changing the fixed Core set.
+        Assert.Equal(TemplateProfile.ProxmoxCloudbaseInit, fixture.Operations.OriginalFilesProfile);
+        Assert.Equal(TemplateProfile.ProxmoxCloudbaseInit, fixture.Operations.CoreProfile);
         var payload = Path.Combine(failure.WorkDirectory, "media", "tiny11-template");
         Assert.Equal(TemplateGuestAssets.StateScript, await File.ReadAllTextAsync(Path.Combine(payload, "Template-State.ps1")));
         foreach (var name in new[] { "cloudbase-init.conf", "cloudbase-init-unattend.conf" })

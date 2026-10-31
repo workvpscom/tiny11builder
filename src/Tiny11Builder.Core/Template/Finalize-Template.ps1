@@ -32,10 +32,10 @@ try {
     $storage = Get-TemplateScsiBootDriverState
     $storage | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $root 'scsi-boot-driver-observation.json') -Encoding UTF8
     if (-not $storage.Healthy) { throw 'SCSI boot driver identity or health check failed' }
-    if ((Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
-        (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
-        $null -ne (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations) {
-        throw 'Pending reboot; retain guest for diagnosis, no automatic finalize'
+    if (Request-TemplatePendingReboot -Path (Join-Path $root 'pending-reboot.json') -ManifestSha256 $prepared.ManifestSha256 -BootIdentity $bootIdentity -Pending (Test-TemplateWindowsRebootPending)) {
+        @{Stage='RebootRequested';Utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content $status -Encoding UTF8
+        # Keep the Audit pass resumable rather than returning a terminal installation failure.
+        exit 2
     }
     $admin = Get-CimInstance Win32_UserAccount -Filter 'LocalAccount=True' | Where-Object {$_.SID -match '-500$'}
     if ($null -eq $admin -or $admin.Name -ne 'Administrator') { throw 'Built-in Administrator mismatch' }

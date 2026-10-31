@@ -66,14 +66,60 @@ public sealed class NativeTests(Xunit.Abstractions.ITestOutputHelper output)
         using var fixture = new BuildFixture();
         var mount = CreateOwnedMount(fixture.Root);
         var inside = Path.Combine(mount, @"Program Files (x86)\Microsoft\Edge\browser.exe");
+        var webview = Path.Combine(mount, @"Program Files (x86)\Microsoft\EdgeWebView\msedgewebview2.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(webview)!);
+        File.WriteAllText(webview, "ordinary builds still remove the Runtime");
         var outside = Path.Combine(fixture.Root, "browser.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(inside)!);
         File.WriteAllText(inside, "offline");
         File.WriteAllText(outside, "host fixture must remain");
         new ImageOperations().RemoveOriginalFiles(mount, "x64", ["edge-files"], _ => { });
         Assert.False(File.Exists(inside));
+        Assert.False(File.Exists(webview));
         Assert.Equal("host fixture must remain", File.ReadAllText(outside));
         Assert.Throws<InvalidDataException>(() => new ImageOperations().RemoveOriginalFiles(fixture.Root, "x64", ["edge-files"], _ => { }));
+    }
+
+    // WV-2: Exercise real owned-mount deletion, including shared trees and browser removal.
+    [Theory]
+    [InlineData(TemplateProfile.None, false)]
+    [InlineData(TemplateProfile.None, true)]
+    [InlineData(TemplateProfile.ProxmoxCloudbaseInit, false)]
+    [InlineData(TemplateProfile.ProxmoxCloudbaseInit, true)]
+    public void Original_removals_preserve_WebView2_dependencies_only_for_the_Proxmox_profile(TemplateProfile profile, bool turbo)
+    {
+        using var fixture = new BuildFixture();
+        var mount = CreateOwnedMount(fixture.Root);
+        var runtimePaths = new List<string>
+        {
+            @"Windows\System32\Microsoft-Edge-Webview\msedgewebview2.exe",
+            @"Windows\WinSxS\amd64_microsoft-edge-webview_fixture\msedgewebview2.exe",
+            @"Windows\WinSxS\wow64_microsoft-edge-webview_fixture\msedge.dll"
+        };
+        var browserPaths = new List<string>();
+        foreach (var basePath in new[] { "Program Files", "Program Files (x86)" })
+        {
+            browserPaths.Add(Path.Combine(basePath, "Microsoft", "Edge", "Application", "msedge.exe"));
+            runtimePaths.Add(Path.Combine(basePath, "Microsoft", "EdgeWebView", "Application", "msedgewebview2.exe"));
+            runtimePaths.Add(Path.Combine(basePath, "Microsoft", "EdgeCore", "shared-version", "msedge.dll"));
+            runtimePaths.Add(Path.Combine(basePath, "Microsoft", "EdgeUpdate", "MicrosoftEdgeUpdate.exe"));
+        }
+        foreach (var path in runtimePaths.Concat(browserPaths).Append(@"Windows\System32\OneDriveSetup.exe"))
+        {
+            var file = Path.Combine(mount, path);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, "original payload");
+        }
+        new ImageOperations().RemoveOriginalFiles(mount, "x64", ["edge-files", "onedrive-files"], _ => { }, turbo, profile);
+        foreach (var path in runtimePaths)
+        {
+            if (profile == TemplateProfile.ProxmoxCloudbaseInit)
+                Assert.Equal("original payload", File.ReadAllText(Path.Combine(mount, path)));
+            else
+                Assert.False(File.Exists(Path.Combine(mount, path)));
+        }
+        Assert.All(browserPaths, path => Assert.False(File.Exists(Path.Combine(mount, path))));
+        Assert.False(File.Exists(Path.Combine(mount, @"Windows\System32\OneDriveSetup.exe")));
     }
 
     [Theory]
@@ -221,7 +267,7 @@ public sealed class NativeTests(Xunit.Abstractions.ITestOutputHelper output)
             "amd64_microsoft.windows.common-controls_newbuild",
             "amd64_microsoft.windows.gdiplus_newbuild",
             "amd64_microsoft-windows-servicingstack_newbuild",
-            "Manifests", "amd64_optional-newbuild"
+            "Manifests", "amd64_optional-newbuild", "amd64_microsoft-edge-webview_newbuild"
         };
         foreach (var name in names)
         {
@@ -230,7 +276,43 @@ public sealed class NativeTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         new ImageOperations().TrimCore(mount, "x64", _ => { }, CancellationToken.None);
         Assert.All(names[..4], name => Assert.True(Directory.Exists(Path.Combine(store, name))));
-        Assert.False(Directory.Exists(Path.Combine(store, names[4])));
+        Assert.All(names[4..], name => Assert.False(Directory.Exists(Path.Combine(store, name))));
+    }
+
+    // WV-1: Retention must survive TrimCore, not only the earlier edge-files pass.
+    [Theory]
+    [InlineData(TemplateProfile.None, false)]
+    [InlineData(TemplateProfile.None, true)]
+    [InlineData(TemplateProfile.ProxmoxCloudbaseInit, false)]
+    [InlineData(TemplateProfile.ProxmoxCloudbaseInit, true)]
+    public void Core_preserves_WebView2_payloads_only_for_the_Proxmox_profile(TemplateProfile profile, bool turbo)
+    {
+        using var fixture = new BuildFixture();
+        var mount = CreateOwnedMount(fixture.Root);
+        var store = Path.Combine(mount, @"Windows\WinSxS");
+        var runtimeNames = new[]
+        {
+            "amd64_microsoft-edge-webview_fixture", "wow64_microsoft-edge-webview_fixture",
+            "AMD64_MICROSOFT-EDGE-WEBVIEW.Resources_fixture"
+        };
+        foreach (var name in runtimeNames.Concat(new[]
+                 { "amd64_common-controls", "amd64_gdiplus", "amd64_servicing", "amd64_microsoft-edge-browser_fixture", "amd64_optional_fixture" }))
+        {
+            Directory.CreateDirectory(Path.Combine(store, name));
+            File.WriteAllText(Path.Combine(store, name, "payload.dll"), "original payload");
+        }
+        new ImageOperations().TrimCore(mount, "x64", _ => { }, CancellationToken.None, turbo, profile);
+        foreach (var name in runtimeNames)
+        {
+            var file = Path.Combine(store, name, "payload.dll");
+            if (profile == TemplateProfile.ProxmoxCloudbaseInit)
+                Assert.Equal("original payload", File.ReadAllText(file));
+            else
+                Assert.False(File.Exists(file));
+        }
+        Assert.False(Directory.Exists(Path.Combine(store, "amd64_optional_fixture")));
+        Assert.False(Directory.Exists(Path.Combine(store, "amd64_microsoft-edge-browser_fixture")));
+        Assert.True(Directory.Exists(Path.Combine(store, "amd64_common-controls")));
     }
 
     [Fact]

@@ -47,6 +47,22 @@ public sealed class BuildEngineTests
         Assert.True(fixture.Registry.LastRecipe?.Flavor == BuildFlavor.Core);
     }
 
+    // WV-3: Ordinary Core builds must pass the disabled profile to both removal stages.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Core_pipeline_passes_the_disabled_profile_to_both_payload_operations(bool turbo)
+    {
+        using var fixture = new BuildFixture();
+        await fixture.Engine.BuildAsync(fixture.Recipe with
+        {
+            Mode = BuildMode.Tiny11Core, Flavor = BuildFlavor.Core, CoreAcknowledged = true,
+            SelectedOptions = CleanupCatalog.ForMode(BuildMode.Tiny11Core), TurboMode = turbo
+        }, null, CancellationToken.None);
+        Assert.Equal(TemplateProfile.None, fixture.Operations.OriginalFilesProfile);
+        Assert.Equal(TemplateProfile.None, fixture.Operations.CoreProfile);
+    }
+
     [Fact]
     public async Task Missing_optional_features_are_reported_and_never_guessed()
     {
@@ -381,8 +397,14 @@ internal sealed class FakeOperations(List<string> events) : IImageOperations
         [new(ImageItemKind.Service, "BootCriticalDriver", "Boot", true),
          new(ImageItemKind.ComponentPayload, "amd64_critical-component", "Critical", true)];
     public void ApplyNativeActions(string mount, IReadOnlyList<ExpertAction> actions, Action<string> log, bool turboMode = false) => LastActions = actions;
-    public void RemoveOriginalFiles(string mount, string architecture, IReadOnlyList<string> options, Action<string> log, bool turboMode = false) => events.Add("RemoveOriginalFiles");
-    public void TrimCore(string mount, string architecture, Action<string> log, CancellationToken token, bool turboMode = false) => events.Add("TrimCore");
+    public TemplateProfile? OriginalFilesProfile { get; private set; }
+    public TemplateProfile? CoreProfile { get; private set; }
+    public void RemoveOriginalFiles(string mount, string architecture, IReadOnlyList<string> options, Action<string> log, bool turboMode = false,
+        TemplateProfile templateProfile = TemplateProfile.None)
+    { OriginalFilesProfile = templateProfile; events.Add("RemoveOriginalFiles"); }
+    public void TrimCore(string mount, string architecture, Action<string> log, CancellationToken token, bool turboMode = false,
+        TemplateProfile templateProfile = TemplateProfile.None)
+    { CoreProfile = templateProfile; events.Add("TrimCore"); }
     public IReadOnlyList<ImageCleanupResult> CleanRedundantData(string mount, Action<string> log, CancellationToken token)
     { events.Add("CleanRedundantData"); return []; }
 }
